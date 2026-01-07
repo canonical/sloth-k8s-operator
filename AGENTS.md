@@ -243,6 +243,8 @@ tox -e lint,unit
 tox -e integration
 ```
 
+**IMPORTANT**: Always use `tox` to run tests. Do NOT run `pytest` or `python -m pytest` directly, as this bypasses the proper environment setup and dependency isolation.
+
 ### When Writing New Tests
 
 **Unit Tests**:
@@ -456,3 +458,159 @@ Sloth is simpler than Parca - it doesn't need:
 2. Look at `.logs/*.txt` files
 3. Run `juju status` to see actual state
 4. Verify containers are running: `juju exec --unit sloth/0 -- pebble services`
+
+## Current Work Status - SLO Provider/Requirer Library
+
+### ✅ Completed Tasks
+
+1. **SLO Charm Library** (`lib/charms/sloth_k8s/v0/slo.py`)
+   - ✅ Created SLOProvider class for charms to provide SLO specs
+   - ✅ Created SLORequirer class for Sloth to consume SLO specs
+   - ✅ Implemented Pydantic validation (SLOSpec model)
+   - ✅ Added SLOsChangedEvent for dynamic updates
+   - ✅ Comprehensive documentation in module docstring
+
+2. **Sloth Workload Updates** (`src/sloth.py`)
+   - ✅ Added `additional_slos` parameter to constructor
+   - ✅ Implemented `_reconcile_additional_slos()` method
+   - ✅ Each SLO spec is written to `/etc/sloth/slos/` in container
+   - ✅ Rules generated via `sloth generate` for each SLO
+   - ✅ Rules saved to `/etc/sloth/rules/` in container
+   - ✅ Maintains backward compatibility (hardcoded Prometheus SLO)
+
+3. **Charm Integration** (`src/charm.py`)
+   - ✅ Added SLORequirer instance
+   - ✅ Observes `slos_changed` event
+   - ✅ Passes collected SLOs to Sloth workload during reconciliation
+   - ✅ New event handler: `_on_slos_changed()`
+
+4. **Charm Metadata** (`charmcraft.yaml`)
+   - ✅ Added `slos` relation (requires side, interface: slo)
+   - ✅ Marked as optional to maintain backward compatibility
+
+5. **Unit Tests**
+   - ✅ Workload tests for SLO processing (PASSING)
+     - `test_reconcile_additional_slos`
+     - `test_reconcile_additional_slos_generates_rules`
+     - `test_reconcile_multiple_additional_slos`
+   - ✅ SLO spec validation tests
+   - ✅ All workload tests pass (105 tests)
+
+6. **Integration Test Infrastructure**
+   - ✅ Created test provider charm (`tests/integration/slo-test-provider/`)
+   - ✅ Updated integration test conftest.py
+   - ✅ Created integration test skeleton (`test_slo_integration.py`)
+
+### 🚧 Outstanding Tasks
+
+1. **Unit Tests - Charm Level**
+   - ⚠️ Existing charm tests (`tests/unit/test_charm/test_charm.py`) need updates
+   - These tests are from the original parca-k8s charm and reference old imports
+   - Need to rewrite tests for sloth-specific functionality
+   - Current status: Import errors (`RELABEL_CONFIG`, `parca` module)
+   
+2. **Unit Tests - Library Level**
+   - ⚠️ Library tests (`tests/unit/test_library/test_slo.py`) created but need API updates
+   - Tests use incorrect Context API (no `manager` method)
+   - Need to use proper `ops.testing` patterns
+   - Mock-based tests for provider/requirer interaction
+
+3. **Integration Tests**
+   - ⚠️ Integration test needs completion (`test_slo_integration.py`)
+   - Need to actually run the test provider charm
+   - Verify SLO rules are generated in Sloth container
+   - Test end-to-end: provider → Sloth → Prometheus rules
+
+4. **Linting**
+   - ⚠️ 27 lint errors remaining (mostly formatting/unused imports)
+   - Run `tox -e fmt` to auto-fix most issues
+   - Manual fixes needed for F811 (duplicate test definitions)
+
+5. **Documentation**
+   - ⚠️ Update README.md with SLO library usage
+   - ⚠️ Add examples for charm developers
+   - ⚠️ Document relation interface specification
+
+### 🔧 How to Fix Outstanding Items
+
+#### Fix Charm Unit Tests
+```bash
+# The test file needs complete rewrite for sloth
+cd tests/unit/test_charm/
+# Remove old parca references
+# Update imports: sloth instead of parca
+# Remove RELABEL_CONFIG references
+# Update test assertions for sloth workload
+```
+
+#### Fix Library Tests
+```bash
+# Update test pattern - don't use context.manager()
+# Use: state_out = context.run(context.on.event(), state)
+# Then check state_out for expected changes
+```
+
+#### Run Integration Tests
+```bash
+# Build both charms
+charmcraft pack
+cd tests/integration/slo-test-provider && charmcraft pack
+
+# Run integration tests
+tox -e integration -- tests/integration/test_slo_integration.py
+```
+
+#### Fix Linting
+```bash
+# Auto-fix formatting issues
+tox -e fmt
+
+# Check remaining issues
+tox -e lint
+
+# Manual fixes for:
+# - Duplicate test function definitions (remove duplicates)
+# - Unused imports (remove them)
+# - Whitespace issues (should be auto-fixed)
+```
+
+### 📊 Test Coverage
+
+Current coverage for new code:
+- `src/sloth.py`: ~52% (new methods covered by unit tests)
+- `src/charm.py`: ~25% (needs charm-level integration tests)
+- `lib/charms/sloth_k8s/v0/slo.py`: Minimal (library tests incomplete)
+
+Target coverage: >75%
+
+### 🎯 Priority Order
+
+1. **HIGH**: Fix linting errors (tox -e fmt, manual cleanup)
+2. **HIGH**: Complete library unit tests (proper Context API usage)
+3. **MEDIUM**: Update charm unit tests (rewrite for sloth)
+4. **MEDIUM**: Run and verify integration tests
+5. **LOW**: Documentation updates
+
+### 📝 Testing Checklist
+
+Before marking complete:
+- [ ] `tox -e lint` passes with 0 errors
+- [ ] `tox -e unit` passes with >90 tests
+- [ ] Coverage >75% for new code
+- [ ] `tox -e integration` passes (SLO provider test)
+- [ ] Manual test: Deploy sloth + test provider, verify rules generated
+- [ ] Documentation updated
+
+### 🐛 Known Issues
+
+1. **Charm tests outdated**: Still reference parca-k8s imports
+2. **Library tests incomplete**: Mock-based approach needs refinement
+3. **Integration test provider**: Not yet tested end-to-end
+4. **Duplicate test functions**: In test_sloth.py (lines 92, 132, 169)
+
+### 💡 Quick Wins
+
+These can be done immediately:
+1. Run `tox -e fmt` to fix 54 formatting errors automatically
+2. Remove duplicate test function definitions in `test_sloth.py`
+3. Update import statements in `test_charm.py` (sloth vs parca)
