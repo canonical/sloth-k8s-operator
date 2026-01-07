@@ -11,15 +11,15 @@ from uuid import uuid4
 import pytest
 from ops.model import ActiveStatus, WaitingStatus
 from ops.testing import CharmEvents, Relation, State
-from scenario import BlockedStatus, PeerRelation
-
-from charm import RELABEL_CONFIG
-from nginx import Nginx
 from parca import DEFAULT_CONFIG_PATH, Parca
+from scenario import BlockedStatus, PeerRelation
 from tests.unit.test_charm.container_utils import (
     assert_parca_command_equals,
     assert_parca_config_equals,
 )
+
+from charm import RELABEL_CONFIG
+from nginx import Nginx
 
 DEFAULT_PLAN = {
     "services": {

@@ -117,13 +117,13 @@ class TestSLORequirer:
         )
         state = State()
 
-        state_out = context.run(context.on.start(), state)
+        _ = context.run(context.on.start(), state)
         # Create a new charm instance to test the requirer
         ctx2 = Context(
             RequirerCharm, meta={"name": "requirer", "provides": {"slos": {"interface": "slo"}}}
         )
         state2 = State()
-        state_out2 = ctx2.run(ctx2.on.start(), state2)
+        _ = ctx2.run(ctx2.on.start(), state2)
 
         # Test via directly instantiating
         from unittest.mock import MagicMock

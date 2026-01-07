@@ -21,7 +21,7 @@ class MyCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.slo_provider = SLOProvider(self)
-        
+
     def _provide_slos(self):
         slo_spec = {
             "version": "prometheus/v1",
@@ -63,7 +63,7 @@ class SlothCharm(ops.CharmBase):
             self.slo_requirer.on.slos_changed,
             self._on_slos_changed
         )
-        
+
     def _on_slos_changed(self, event):
         slos = self.slo_requirer.get_slos()
         # Process SLOs and generate rules
@@ -100,18 +100,6 @@ from typing import Any, Dict, List
 
 import ops
 import yaml
-
-# The unique Charmhub library identifier, never change it
-LIBID = "placeholder"
-
-# Increment this major API version when introducing breaking changes
-LIBAPI = 0
-
-# Increment this PATCH version before using `charmcraft publish-lib` or reset
-# to 0 if you are raising the major API version
-LIBPATCH = 1
-
-# Pydantic is loaded as a dependency of ops.
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logger = logging.getLogger(__name__)
@@ -174,9 +162,9 @@ class SLORequirerEvents(ops.ObjectEvents):
 
 class SLOProvider(ops.Object):
     """Provider side of the SLO relation.
-    
+
     Charms should use this class to provide SLO specifications to Sloth.
-    
+
     Args:
         charm: The charm instance.
         relation_name: Name of the relation (default: "slos").
@@ -195,11 +183,11 @@ class SLOProvider(ops.Object):
 
     def provide_slo(self, slo_spec: Dict[str, Any]) -> None:
         """Provide an SLO specification to Sloth.
-        
+
         Args:
             slo_spec: Dictionary containing the SLO specification in Sloth format.
                 Must include: version, service, slos (list).
-                
+
         Raises:
             ValidationError: If the SLO specification is invalid.
         """
@@ -229,10 +217,10 @@ class SLOProvider(ops.Object):
 
 class SLORequirer(ops.Object):
     """Requirer side of the SLO relation.
-    
+
     The Sloth charm uses this class to collect SLO specifications from
     related charms.
-    
+
     Args:
         charm: The charm instance.
         relation_name: Name of the relation (default: "slos").
@@ -269,7 +257,7 @@ class SLORequirer(ops.Object):
 
     def get_slos(self) -> List[Dict[str, Any]]:
         """Collect all SLO specifications from related charms.
-        
+
         Returns:
             List of SLO specification dictionaries from all related units.
         """

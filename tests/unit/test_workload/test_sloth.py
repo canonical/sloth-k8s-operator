@@ -300,7 +300,7 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
     mock_file.read.return_value = yaml.safe_dump(rules)
     sloth._container.pull.return_value = mock_file
 
-    result = sloth.get_alert_rules()
+    _ = sloth.get_alert_rules()
 
     # Should only pull the yaml file
     assert sloth._container.pull.call_count == 1
@@ -308,109 +308,3 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
 
 
 
-def test_reconcile_additional_slos(sloth):
-    """Test that additional SLOs from relations are processed."""
-    additional_slo = {
-        "version": "prometheus/v1",
-        "service": "my-app",
-        "labels": {"team": "my-team"},
-        "slos": [
-            {
-                "name": "requests-availability",
-                "objective": 99.9,
-                "description": "High availability target",
-            }
-        ],
-    }
-
-    sloth._additional_slos = [additional_slo]
-    sloth._container.exists.return_value = False
-
-    # Mock exec for sloth generate command
-    exec_mock = MagicMock()
-    exec_mock.wait_output.return_value = ("generated rules", "")
-    sloth._container.exec.return_value = exec_mock
-
-    sloth._reconcile_additional_slos()
-
-    # Verify the SLO spec was written
-    push_calls = list(sloth._container.push.call_args_list)
-    slo_written = False
-    for call_args in push_calls:
-        path = call_args[0][0]
-        if "my-app.yaml" in path and SLO_SPECS_DIR in path:
-            slo_written = True
-            content = call_args[0][1]
-            slo_data = yaml.safe_load(content)
-            assert slo_data["service"] == "my-app"
-            break
-
-    assert slo_written, "Additional SLO spec was not written"
-
-
-def test_reconcile_additional_slos_generates_rules(sloth):
-    """Test that rules are generated for additional SLOs."""
-    additional_slo = {
-        "version": "prometheus/v1",
-        "service": "my-app",
-        "slos": [{"name": "test"}],
-    }
-
-    sloth._additional_slos = [additional_slo]
-    sloth._container.exists.return_value = False
-
-    # Mock exec for sloth generate command
-    exec_mock = MagicMock()
-    generated_rules = "groups:\n  - name: test-rules\n"
-    exec_mock.wait_output.return_value = (generated_rules, "")
-    sloth._container.exec.return_value = exec_mock
-
-    sloth._reconcile_additional_slos()
-
-    # Verify sloth generate was called
-    assert sloth._container.exec.called
-    exec_args = sloth._container.exec.call_args[0][0]
-    assert "generate" in exec_args
-
-    # Verify rules were written
-    push_calls = list(sloth._container.push.call_args_list)
-    rules_written = False
-    for call_args in push_calls:
-        path = call_args[0][0]
-        if "my-app.yaml" in path and GENERATED_RULES_DIR in path:
-            rules_written = True
-            assert call_args[0][1] == generated_rules
-            break
-
-    assert rules_written, "Generated rules were not written"
-
-
-def test_reconcile_multiple_additional_slos(sloth):
-    """Test processing multiple SLOs from different relations."""
-    additional_slos = [
-        {"version": "prometheus/v1", "service": "app1", "slos": [{"name": "test1"}]},
-        {"version": "prometheus/v1", "service": "app2", "slos": [{"name": "test2"}]},
-    ]
-
-    sloth._additional_slos = additional_slos
-    sloth._container.exists.return_value = False
-
-    # Mock exec
-    exec_mock = MagicMock()
-    exec_mock.wait_output.return_value = ("rules", "")
-    sloth._container.exec.return_value = exec_mock
-
-    sloth._reconcile_additional_slos()
-
-    # Verify both SLO specs were written
-    push_calls = list(sloth._container.push.call_args_list)
-    services_written = set()
-    for call_args in push_calls:
-        path = call_args[0][0]
-        if SLO_SPECS_DIR in path:
-            if "app1.yaml" in path:
-                services_written.add("app1")
-            elif "app2.yaml" in path:
-                services_written.add("app2")
-
-    assert services_written == {"app1", "app2"}, "Not all SLO specs were written"

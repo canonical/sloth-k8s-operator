@@ -614,3 +614,48 @@ These can be done immediately:
 1. Run `tox -e fmt` to fix 54 formatting errors automatically
 2. Remove duplicate test function definitions in `test_sloth.py`
 3. Update import statements in `test_charm.py` (sloth vs parca)
+
+---
+
+## ✅ TASK COMPLETED: Fix Linting Errors
+
+**Status**: COMPLETED  
+**Date**: 2026-01-07  
+**Errors Fixed**: 27 → 0
+
+### Changes Made
+
+1. **Fixed Duplicate Test Functions**
+   - Removed duplicate test definitions in `test_sloth.py` (lines 311-416)
+   - Tests: `test_reconcile_additional_slos`, `test_reconcile_additional_slos_generates_rules`, `test_reconcile_multiple_additional_slos`
+
+2. **Fixed Unused Variables**
+   - Replaced `state_out = ` with `_ = ` where appropriate
+   - Fixed `result` variable in test functions (kept where needed, replaced where not)
+
+3. **Fixed Whitespace Issues**
+   - Removed trailing whitespace from all files
+   - Cleaned up blank lines with spaces in `slo.py`
+
+4. **Fixed Import Order**
+   - Moved Pydantic import to top of file (after module docstring)
+   - Removed duplicate LIBID/LIBAPI/LIBPATCH definitions
+
+### Final Result
+
+```bash
+$ tox -e lint
+All checks passed!
+  lint: OK (1.03=setup[0.14]+cmd[0.90] seconds)
+  congratulations :) (1.18 seconds)
+```
+
+**Zero lint errors remaining!** ✅
+
+### Updated Priority Order
+
+1. ~~**HIGH**: Fix linting errors~~ ✅ **DONE**
+2. **HIGH**: Complete library unit tests (proper Context API usage)
+3. **MEDIUM**: Update charm unit tests (rewrite for sloth)
+4. **MEDIUM**: Run and verify integration tests
+5. **LOW**: Documentation updates
