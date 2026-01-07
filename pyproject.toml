@@ -1,13 +1,12 @@
 # Testing tools configuration
 [project]
-name = "parca-k8s-operator"
+name = "sloth-k8s-operator"
 version = "0.1.0"
 requires-python = ">=3.10"
 
 dependencies = [
     "ops[tracing]",
     "pydantic <3",
-    # parca is not a coordinated-worker, but that's where the nginx config builder we need lives
     "coordinated_workers",
     # ---PYDEPS---
     # lib/charms/tls_certificates_interface/v4/tls_certificates.py

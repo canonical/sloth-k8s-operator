@@ -1,0 +1,32 @@
+# Copyright 2025 Canonical Ltd.
+# See LICENSE file for licensing details.
+name: slo-test-provider
+summary: Test charm that provides SLO specifications
+description: |
+  A simple test charm for integration testing that provides SLO 
+  specifications to the Sloth charm.
+
+type: "charm"
+
+bases:
+  - build-on:
+    - name: "ubuntu"
+      channel: "22.04"
+    run-on:
+    - name: "ubuntu"
+      channel: "22.04"
+
+provides:
+  slos:
+    interface: slo
+
+config:
+  options:
+    slo-service-name:
+      description: Name of the service in the SLO spec
+      type: string
+      default: "test-service"
+    slo-objective:
+      description: SLO objective percentage (e.g., 99.9)
+      type: string
+      default: "99.9"

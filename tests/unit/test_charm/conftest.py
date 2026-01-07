@@ -1,11 +1,10 @@
-import json
 from contextlib import ExitStack
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from ops.testing import Container, Context, PeerRelation, Relation
+from ops.testing import Container, Context, PeerRelation
 
-from charm import ParcaOperatorCharm
+from charm import SlothOperatorCharm
 
 
 @pytest.fixture(autouse=True)
@@ -16,27 +15,19 @@ def patch_all(tmp_path):
         stack.enter_context(patch("nginx.Nginx._are_certificates_on_disk", False))
         stack.enter_context(patch("nginx.CA_CERT_PATH", str(ca_tmp_path)))
         stack.enter_context(patch("charm.CA_CERT_PATH", str(ca_tmp_path)))
-        stack.enter_context(patch("parca.CA_CERT_PATH", str(ca_tmp_path)))
-        stack.enter_context(patch("parca.Parca.version", "v0.12.0"))
-        stack.enter_context(
-            patch(
-                "charm.JujuTopology.from_charm",
-                MagicMock(
-                    return_value=MagicMock(as_dict=MagicMock(return_value={}), identifier="")
-                ),
-            )
-        )
+        stack.enter_context(patch("sloth.CA_CERT_PATH", str(ca_tmp_path)))
+        stack.enter_context(patch("sloth.Sloth.version", "0.11.0"))
         yield
 
 
 @pytest.fixture(scope="function")
 def context():
-    return Context(charm_type=ParcaOperatorCharm)
+    return Context(charm_type=SlothOperatorCharm)
 
 
 @pytest.fixture
-def parca_peers():
-    return PeerRelation("parca-peers")
+def sloth_peers():
+    return PeerRelation("sloth-peers")
 
 
 @pytest.fixture(scope="function")
@@ -48,9 +39,9 @@ def nginx_container():
 
 
 @pytest.fixture(scope="function")
-def parca_container():
+def sloth_container():
     return Container(
-        "parca",
+        "sloth",
         can_connect=True,
     )
 
@@ -60,16 +51,4 @@ def nginx_prometheus_exporter_container():
     return Container(
         "nginx-prometheus-exporter",
         can_connect=True,
-    )
-
-
-@pytest.fixture
-def workload_tracing_relation():
-    remote_app_databag = {
-        "receivers": json.dumps(
-            [{"protocol": {"name": "otlp_grpc", "type": "grpc"}, "url": "192.0.2.0/24"}]
-        )
-    }
-    return Relation(
-        "workload-tracing", remote_app_name="backend", remote_app_data=remote_app_databag
     )
