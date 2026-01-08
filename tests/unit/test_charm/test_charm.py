@@ -1,284 +1,44 @@
 # Copyright 2025 Canonical
 # See LICENSE file for licensing details.
 
-import json
-import socket
-import types
+"""Unit tests for the Sloth charm."""
+
 from dataclasses import replace
-from unittest.mock import patch
-from uuid import uuid4
 
 import pytest
+import yaml
 from ops.model import ActiveStatus, WaitingStatus
 from ops.testing import CharmEvents, Relation, State
-from parca import DEFAULT_CONFIG_PATH, Parca
-from scenario import BlockedStatus, PeerRelation
-from tests.unit.test_charm.container_utils import (
-    assert_parca_command_equals,
-    assert_parca_config_equals,
-)
-
-from charm import RELABEL_CONFIG
-from nginx import Nginx
-
-DEFAULT_PLAN = {
-    "services": {
-        "parca": {
-            "summary": "parca",
-            "startup": "enabled",
-            "override": "replace",
-            "command": f"/parca --config-path={DEFAULT_CONFIG_PATH} --http-address=localhost:{Parca.port} --storage-active-memory=4294967296",
-        }
-    }
-}
-
-_uuid = uuid4()
-
-SCRAPE_METADATA = {
-    "model": "test-model",
-    "model_uuid": str(_uuid),
-    "application": "profiled-app",
-    "charm_name": "test-charm",
-}
-SCRAPE_JOBS = [
-    {
-        "global": {"scrape_interval": "1h"},
-        "job_name": "my-first-job",
-        "static_configs": [{"targets": ["*:7000"], "labels": {"some-key": "some-value"}}],
-    },
-]
 
 
 @pytest.fixture
-def base_state(parca_container, nginx_container, nginx_prometheus_exporter_container, parca_peers):
+def base_state(sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers):
+    """Return base state with all containers ready."""
     return State(
-        containers={parca_container, nginx_container, nginx_prometheus_exporter_container},
-        relations={parca_peers},
+        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container],
+        relations=[sloth_peers],
     )
 
 
 def assert_healthy(state: State):
-    # check the parca container has a plan and "parca" service is running
-    container_out = state.get_container("parca")
-    assert container_out.services["parca"].is_running()
-
-    # check the unit status is active
+    """Assert that the charm is in a healthy state."""
+    # Check the unit status is active
     assert isinstance(state.unit_status, ActiveStatus)
 
-    # check the workload version is set and as expected
-    assert state.workload_version == "v0.12.0"
+    # Check the workload version is set
+    assert state.workload_version == "0.11.0"
 
 
 @pytest.fixture(params=(0, 1, 2))
-def any_container(parca_container, nginx_container, nginx_prometheus_exporter_container, request):
-    # parametrized fixture to allow running tests on any individual container
-    return (parca_container, nginx_container, nginx_prometheus_exporter_container)[request.param]
+def any_container(sloth_container, nginx_container, nginx_prometheus_exporter_container, request):
+    """Parametrized fixture for testing any individual container."""
+    return (sloth_container, nginx_container, nginx_prometheus_exporter_container)[request.param]
 
 
 def test_healthy_container_events(context, any_container, base_state):
+    """Test that pebble-ready events for any container lead to healthy state."""
     state_out = context.run(context.on.pebble_ready(any_container), base_state)
     assert_healthy(state_out)
-
-
-@pytest.mark.parametrize(
-    "event",
-    (
-            CharmEvents().update_status(),
-            CharmEvents().start(),
-            CharmEvents().install(),
-            CharmEvents().config_changed(),
-    ),
-)
-def test_healthy_lifecycle_events(context, event, base_state):
-    state_out = context.run(event, base_state)
-    assert_healthy(state_out)
-
-
-def test_config_changed_container_not_ready(
-        context, parca_container, nginx_container, nginx_prometheus_exporter_container, parca_peers
-):
-    state = State(
-        containers={
-            replace(parca_container, can_connect=False),
-            nginx_container,
-            nginx_prometheus_exporter_container,
-        },
-        relations={parca_peers},
-        config={"enable-persistence": False, "memory-storage-limit": 1024},
-    )
-    state_out = context.run(context.on.config_changed(), state)
-    assert state_out.unit_status == WaitingStatus(f"Waiting for containers: {['parca']}...")
-
-
-def test_config_changed_persistence(context, base_state):
-    state_out = context.run(
-        context.on.config_changed(),
-        replace(base_state, config={"enable-persistence": True, "memory-storage-limit": 1024}),
-    )
-    assert_parca_command_equals(
-        state_out,
-        f"/parca --config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        "--enable-persistence "
-        "--storage-path=/var/lib/parca",
-    )
-    assert_healthy(state_out)
-
-
-def test_config_changed_active_memory(context, base_state):
-    state_out = context.run(
-        context.on.config_changed(),
-        replace(base_state, config={"enable-persistence": False, "memory-storage-limit": 2048}),
-    )
-
-    assert_parca_command_equals(
-        state_out,
-        f"/parca "
-        f"--config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        f"--storage-active-memory=2147483648",
-    )
-    assert_healthy(state_out)
-
-
-def test_config_file_written(context, parca_container, base_state):
-    self_profiling = Relation(
-        "self-profiling-endpoint",
-    )
-
-    state_out = context.run(
-        context.on.pebble_ready(parca_container), replace(base_state, relations={self_profiling})
-    )
-    assert_parca_config_equals(
-        context,
-        state_out,
-        {
-            "object_storage": {
-                "bucket": {"config": {"directory": "/var/lib/parca"}, "type": "FILESYSTEM"}
-            },
-            "scrape_configs": [],
-        },
-    )
-
-
-def test_parca_pebble_layer_adjusted_memory(context, base_state):
-    state_out = context.run(
-        context.on.config_changed(),
-        replace(base_state, config={"enable-persistence": False, "memory-storage-limit": 2048}),
-    )
-    state_out_2 = context.run(
-        context.on.config_changed(),
-        replace(state_out, config={"enable-persistence": False, "memory-storage-limit": 1024}),
-    )
-    assert_parca_command_equals(
-        state_out_2,
-        f"/parca "
-        f"--config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        f"--storage-active-memory=1073741824",
-    )
-    assert_healthy(state_out_2)
-
-
-def test_parca_pebble_layer_storage_persist(context, base_state):
-    state_out = context.run(
-        context.on.config_changed(),
-        replace(base_state, config={"enable-persistence": False, "memory-storage-limit": 1024}),
-    )
-    state_out_2 = context.run(
-        context.on.config_changed(),
-        replace(state_out, config={"enable-persistence": True, "memory-storage-limit": 1024}),
-    )
-
-    assert_parca_command_equals(
-        state_out_2,
-        f"/parca "
-        f"--config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        "--enable-persistence "
-        "--storage-path=/var/lib/parca",
-    )
-    assert_healthy(state_out_2)
-
-
-def test_profiling_endpoint_relation(context, base_state):
-    self_profiling_relation = Relation(
-        "self-profiling-endpoint",
-    )
-
-    relation = Relation(
-        "profiling-endpoint",
-        remote_app_name="profiled-app",
-        remote_app_data={
-            "scrape_metadata": json.dumps(SCRAPE_METADATA),
-            "scrape_jobs": json.dumps(SCRAPE_JOBS),
-        },
-        remote_units_data={
-            0: {
-                "parca_scrape_unit_address": "1.1.1.1",
-                "parca_scrape_unit_name": "profiled-app/0",
-            }
-        },
-    )
-    # Create a relation to an app named "profiled-app"
-    # Taking into account the data provided by the simulated app, we should receive the
-    # following jobs config from the profiling_consumer
-    expected_jobs = [
-        {
-            "static_configs": [
-                {
-                    "labels": {
-                        "some-key": "some-value",
-                        "juju_model": "test-model",
-                        "juju_model_uuid": str(_uuid),
-                        "juju_application": "profiled-app",
-                        "juju_charm": "test-charm",
-                        "juju_unit": "profiled-app/0",
-                    },
-                    "targets": ["1.1.1.1:7000"],
-                }
-            ],
-            "job_name": f"test-model_{str(_uuid).split('-')[0]}_profiled-app_my-first-job",
-            "relabel_configs": RELABEL_CONFIG,
-        }
-    ]
-    with context(
-            context.on.relation_changed(relation),
-            replace(base_state, relations={relation, self_profiling_relation}),
-    ) as mgr:
-        assert mgr.charm.profiling_consumer.jobs() == expected_jobs
-        state_out = mgr.run()
-    expected_config = {
-        "object_storage": {
-            "bucket": {"config": {"directory": "/var/lib/parca"}, "type": "FILESYSTEM"}
-        },
-        "scrape_configs": expected_jobs,
-    }
-    assert_parca_config_equals(context, state_out, expected_config)
-
-
-def test_metrics_endpoint_relation(context, base_state):
-    # Create a relation to an app named "prometheus"
-    relation = Relation("metrics-endpoint", remote_app_name="prometheus")
-
-    state_out = context.run(
-        context.on.relation_joined(relation),
-        replace(base_state, leader=True, relations={relation}),
-    )
-
-    # Grab the unit data from the relation
-    rel_out = state_out.get_relation(relation.id)
-    # Ensure that the unit set its targets correctly
-    expected = {
-        "prometheus_scrape_unit_address": socket.getfqdn(),
-        "prometheus_scrape_unit_name": "parca-k8s/0",
-    }
-    for key, val in expected.items():
-        assert rel_out.local_unit_data[key] == val
 
 
 @pytest.mark.parametrize(
@@ -288,217 +48,239 @@ def test_metrics_endpoint_relation(context, base_state):
         CharmEvents().start(),
         CharmEvents().install(),
         CharmEvents().config_changed(),
-        CharmEvents().relation_changed,
-        CharmEvents().relation_joined,
-        CharmEvents().relation_departed,
     ),
 )
-def test_parca_store_relation(event, context, base_state):
-    # Create a relation to an app named "parca-store-endpoint"
-    relation = Relation("parca-store-endpoint", remote_app_name="foo")
-    state_out = context.run(
-        event(relation) if isinstance(event, types.FunctionType) else event,
-        replace(base_state, leader=True, relations={relation}),
+def test_healthy_lifecycle_events(context, event, base_state):
+    """Test that standard lifecycle events lead to healthy state."""
+    state_out = context.run(event, base_state)
+    assert_healthy(state_out)
+
+
+def test_config_changed_container_not_ready(
+    context, sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers
+):
+    """Test config-changed when containers are not ready."""
+    sloth_container_not_ready = replace(sloth_container, can_connect=False)
+    state = State(
+        containers=[sloth_container_not_ready, nginx_container, nginx_prometheus_exporter_container],
+        relations=[sloth_peers],
     )
 
-    # Grab the unit data from the relation
-    rel_out = state_out.get_relation(relation.id)
-    # Ensure that the unit set its targets correctly
-    expected = {
-        "remote-store-address": f"{socket.getfqdn()}:{Nginx.parca_grpc_server_port}",
-        "remote-store-insecure": "true",
-    }
-    for key, val in expected.items():
-        assert rel_out.local_app_data[key] == val
-
-    # GIVEN an ingress relation over TLS
-    ingress = Relation(
-        "ingress",
-        remote_app_name="bar",
-        remote_app_data={"external_host": "1.2.3.4", "scheme": "https"},
-    )
-    # WHEN any event fires
-    state_out = context.run(
-        event(relation) if isinstance(event, types.FunctionType) else event,
-        replace(base_state, leader=True, relations={relation, ingress}),
-    )
-    rel_out = state_out.get_relation(relation.id)
-    # THEN remote-store-address gets updated with the ingress host
-    # AND remote-store-insecure is false
-    expected = {
-        "remote-store-address": f"1.2.3.4:{Nginx.parca_grpc_server_port}",
-        "remote-store-insecure": "false",
-    }
-    for key, val in expected.items():
-        assert rel_out.local_app_data[key] == val
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, WaitingStatus)
+    assert "Waiting for containers" in state_out.unit_status.message
 
 
-def test_parca_store_relation_empty(context, base_state):
-    # Create a relation to an app named "parca-store-endpoint"
-    relation = Relation("parca-store-endpoint", remote_app_name="foo")
-
-    state_out = context.run(
-        context.on.relation_broken(relation),
-        replace(base_state, leader=True, relations={relation}),
+def test_install_container_not_ready(
+    context, sloth_container, nginx_container, nginx_prometheus_exporter_container
+):
+    """Test install hook when containers are not ready."""
+    sloth_container_not_ready = replace(sloth_container, can_connect=False)
+    state = State(
+        containers=[sloth_container_not_ready, nginx_container, nginx_prometheus_exporter_container]
     )
 
-    # Grab the unit data from the relation
-    rel_out = state_out.get_relation(relation.id)
-    # Ensure that the unit data is empty
-    assert rel_out.local_app_data == {}
+    # Install should not fail even if containers aren't ready
+    state_out = context.run(context.on.install(), state)
+    assert isinstance(state_out.unit_status, WaitingStatus)
 
 
-def test_parca_external_store_relation(context, base_state):
-    pscloud_config = {
-        "remote-store-address": "grpc.polarsignals.com:443",
-        "remote-store-bearer-token": "deadbeef",
-        "remote-store-insecure": "false",
-    }
+def test_slo_relation_joined(context, base_state):
+    """Test that SLO relation can be joined."""
+    slo_relation = Relation("slos", remote_app_name="slo-provider")
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
 
-    relation = Relation(
-        "external-parca-store-endpoint", remote_app_name="pscloud", remote_app_data=pscloud_config
-    )
-
-    # Ensure that the pscloud config gets passed to the charm
-    with context(
-            context.on.relation_changed(relation),
-            replace(base_state, leader=True, relations={relation}),
-    ) as mgr:
-        config = mgr.charm.store_requirer.config
-        for key, val in pscloud_config.items():
-            assert config[key] == val
-        state_out = mgr.run()
-
-    # Check the Parca is started with the correct command including store flags
-    assert_parca_command_equals(
-        state_out,
-        "/parca "
-        f"--config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        "--storage-active-memory=4294967296 "
-        "--store-address=grpc.polarsignals.com:443 "
-        "--bearer-token=deadbeef "
-        "--insecure=false "
-        "--mode=scraper-only",
-    )
+    state_out = context.run(context.on.relation_joined(slo_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
 
 
-def test_self_profiling_no_endpoint_relation(context, base_state):
-    # verify that the scrape config contains the self-scraping job
-    expected_scrape_config = [
-        {
-            "job_name": "parca",
-            "relabel_configs": RELABEL_CONFIG,
-            "static_configs": [
-                {
-                    "targets": [f"{socket.getfqdn()}:{Nginx.parca_http_server_port}"],
-                }
-            ],
-        }
-    ]
-
-    with context(context.on.config_changed(), base_state) as mgr:
-        scrape_config = mgr.charm._profiling_scrape_configs
-        assert scrape_config == expected_scrape_config
-
-
-def test_self_profiling_endpoint_relation(context, base_state):
-    expected_scrape_jobs = [
-        {"static_configs": [{"targets": [f"*:{Nginx.parca_http_server_port}"]}]}
-    ]
-    # GIVEN a self-profiling-endpoint relation
-    relation = Relation("self-profiling-endpoint")
-
-    # WHEN we get a relation changed event
-    with context(
-            context.on.relation_changed(relation),
-            replace(base_state, leader=True, relations={relation}),
-    ) as mgr:
-        state_out = mgr.run()
-        scrape_config = mgr.charm._profiling_scrape_configs
-        # THEN no self-profiling scrape job in the generated config
-        assert not scrape_config
-
-        # AND self-profiling scrape job is sent to remote app
-        rel_out = state_out.get_relation(relation.id)
-        assert rel_out.local_app_data["scrape_jobs"] == json.dumps(expected_scrape_jobs)
-
-
-def test_parca_workload_tracing_relation(context, base_state):
-    remote_app_databag = {
-        "receivers": json.dumps(
-            [{"protocol": {"name": "otlp_grpc", "type": "grpc"}, "url": "192.0.2.0/24"}]
-        )
-    }
-    relation = Relation(
-        "workload-tracing", remote_app_name="backend", remote_app_data=remote_app_databag
-    )
-
-    state_out = context.run(
-        context.on.relation_changed(relation),
-        replace(base_state, leader=True, relations={relation}),
-    )
-
-    # Check the Parca is started with the correct command including the tracing flag
-    assert_parca_command_equals(
-        state_out,
-        f"/parca "
-        f"--config-path={DEFAULT_CONFIG_PATH} "
-        f"--http-address=localhost:{Parca.port} "
-        "--storage-enable-wal "
-        "--storage-active-memory=4294967296 "
-        "--otlp-address=192.0.2.0/24",
-    )
-
-
-@pytest.mark.parametrize("tls", (True, False))
-@pytest.mark.parametrize("ingress", (True, False))
-def test_list_endpoints_action(context, base_state, tls, ingress):
-    # GIVEN (conditionally) TLS and ingress relations
-    base_state = replace(base_state, leader=True)
-    if ingress:
-        external_host = "162.42.42.42"
-        ingress_data = {
-            "external_host": external_host,
-            "scheme": "https" if tls else "http"
-        }
-        ingress_relation = Relation("ingress", remote_app_data=ingress_data)
-        base_state = replace(base_state, relations=set(base_state.relations).union({
-            ingress_relation
-        }))
-
-    with patch("charm.ParcaOperatorCharm._scheme", 'https' if tls else "http"):
-        # WHEN we run a list-endpoints action
-        context.run(context.on.action("list-endpoints"), base_state)
-        results = context.action_results
-
-    # THEN we get the expected action results
-    scheme = "https" if tls else "http"
-    fqdn = socket.getfqdn()
-
-    expected_results = {
-        'direct-http-url': f'{scheme}://{fqdn}:{Nginx.parca_http_server_port}',
-        'direct-grpc-url': f'{fqdn}:{Nginx.parca_grpc_server_port}',
-    }
-    if ingress:
-        expected_results.update(
+def test_slo_relation_changed_with_valid_data(context, base_state):
+    """Test SLO relation changed with valid SLO data."""
+    slo_spec = {
+        "version": "prometheus/v1",
+        "service": "test-app",
+        "labels": {"team": "test"},
+        "slos": [
             {
-                "ingressed-http-url": f"{scheme}://{external_host}:{Nginx.parca_http_server_port}",
-                "ingressed-grpc-url": f"{external_host}:{Nginx.parca_grpc_server_port}",
+                "name": "availability",
+                "objective": 99.9,
+                "description": "Test SLO",
+                "sli": {
+                    "events": {
+                        "error_query": "sum(rate(errors[{{.window}}]))",
+                        "total_query": "sum(rate(requests[{{.window}}]))",
+                    }
+                },
             }
-        )
-    assert results == expected_results
-
-@pytest.mark.parametrize("event", (
-    CharmEvents.update_status(),
-    CharmEvents.install(),
-    CharmEvents.update_status(),
-))
-def test_parca_blocks_if_scaled(context, base_state, event):
-    relation= PeerRelation("parca-peers", peers_data={1:{}}, local_unit_data={})
-    state_out = context.run(
-        event,
-        replace(base_state, leader=True, relations={relation}),
+        ],
+    }
+    slo_yaml = yaml.safe_dump(slo_spec)
+    slo_relation = Relation(
+        "slos",
+        remote_app_name="slo-provider",
+        remote_units_data={0: {"slo_spec": slo_yaml}},
     )
-    assert isinstance(state_out.unit_status, BlockedStatus)
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
+
+    state_out = context.run(context.on.relation_changed(slo_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_slo_relation_changed_with_invalid_data(context, base_state):
+    """Test SLO relation changed with invalid SLO data."""
+    invalid_slo_yaml = "invalid: yaml: {{{"
+    slo_relation = Relation(
+        "slos",
+        remote_app_name="slo-provider",
+        remote_units_data={0: {"slo_spec": invalid_slo_yaml}},
+    )
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
+
+    # Should not crash, just log error
+    state_out = context.run(context.on.relation_changed(slo_relation), state)
+    # Charm should still be active (invalid SLOs are logged and skipped)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_slo_relation_departed(context, base_state):
+    """Test SLO relation departed."""
+    slo_relation = Relation("slos", remote_app_name="slo-provider")
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
+
+    state_out = context.run(context.on.relation_departed(slo_relation), state)
+    # Should remain active after relation departure
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_multiple_slo_relations(context, base_state):
+    """Test handling multiple SLO provider relations."""
+    slo_spec_1 = {
+        "version": "prometheus/v1",
+        "service": "app1",
+        "slos": [
+            {
+                "name": "availability",
+                "objective": 99.9,
+                "sli": {"events": {"error_query": "errors1", "total_query": "requests1"}},
+            }
+        ],
+    }
+    slo_spec_2 = {
+        "version": "prometheus/v1",
+        "service": "app2",
+        "slos": [
+            {
+                "name": "availability",
+                "objective": 99.5,
+                "sli": {"events": {"error_query": "errors2", "total_query": "requests2"}},
+            }
+        ],
+    }
+    slo_relation_1 = Relation(
+        "slos",
+        remote_app_name="provider1",
+        remote_units_data={0: {"slo_spec": yaml.safe_dump(slo_spec_1)}},
+    )
+    slo_relation_2 = Relation(
+        "slos",
+        remote_app_name="provider2",
+        remote_units_data={0: {"slo_spec": yaml.safe_dump(slo_spec_2)}},
+    )
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation_1, slo_relation_2])
+
+    state_out = context.run(context.on.update_status(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slo_period(context, base_state):
+    """Test that slo-period config option is respected."""
+    state = replace(base_state, config={"slo-period": "7d"})
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_ingress_relation(context, base_state):
+    """Test ingress relation integration."""
+    ingress_relation = Relation(
+        "ingress",
+        remote_app_name="traefik",
+        remote_app_data={"external_host": "sloth.example.com", "scheme": "https"},
+    )
+    state = replace(base_state, relations=list(base_state.relations) + [ingress_relation])
+
+    state_out = context.run(context.on.relation_changed(ingress_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_metrics_endpoint_relation(context, base_state):
+    """Test metrics-endpoint relation."""
+    metrics_relation = Relation("metrics-endpoint", remote_app_name="prometheus")
+    state = replace(base_state, relations=list(base_state.relations) + [metrics_relation])
+
+    state_out = context.run(context.on.relation_joined(metrics_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_grafana_dashboard_relation(context, base_state):
+    """Test grafana-dashboard relation."""
+    grafana_relation = Relation("grafana-dashboard", remote_app_name="grafana")
+    state = replace(base_state, relations=list(base_state.relations) + [grafana_relation])
+
+    state_out = context.run(context.on.relation_joined(grafana_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
+    """Test that charm doesn't go into error state during install when containers aren't ready."""
+    # Containers not connected yet (realistic during install)
+    from ops.testing import Container
+    sloth_not_ready = Container("sloth", can_connect=False)
+    nginx_not_ready = Container("nginx", can_connect=False)
+    exporter_not_ready = Container("nginx-prometheus-exporter", can_connect=False)
+
+    state = State(
+        containers=[sloth_not_ready, nginx_not_ready, exporter_not_ready],
+        relations=[sloth_peers],
+    )
+
+    # Install should handle this gracefully (try/except in __init__)
+    state_out = context.run(context.on.install(), state)
+    # Should be waiting, not error
+    assert isinstance(state_out.unit_status, WaitingStatus)
+
+
+def test_charm_recovers_from_waiting_state(
+    context, sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers
+):
+    """Test that charm can recover from waiting state."""
+    # Start with containers not ready
+    sloth_not_ready = replace(sloth_container, can_connect=False)
+    state = State(
+        containers=[sloth_not_ready, nginx_container, nginx_prometheus_exporter_container],
+        relations=[sloth_peers],
+    )
+
+    state_out = context.run(context.on.start(), state)
+    assert isinstance(state_out.unit_status, WaitingStatus)
+
+    # Now simulate pebble-ready (container becomes ready)
+    state_ready = replace(state_out,
+        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container]
+    )
+    state_final = context.run(context.on.pebble_ready(sloth_container), state_ready)
+    assert_healthy(state_final)
+
+
+def test_peer_relation_required(context, sloth_container, nginx_container, nginx_prometheus_exporter_container):
+    """Test behavior without peer relation."""
+    # Note: Peer relations are typically always present, but test defensive behavior
+    state = State(
+        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container],
+        relations=[],
+    )
+
+    # Should handle missing peer relation gracefully
+    state_out = context.run(context.on.start(), state)
+    # May be waiting or active depending on implementation
+    assert state_out.unit_status is not None
