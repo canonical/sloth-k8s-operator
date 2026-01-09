@@ -23,6 +23,7 @@ class MyCharm(ops.CharmBase):
         self.slo_provider = SLOProvider(self)
 
     def _provide_slos(self):
+        # Single SLO spec
         slo_spec = {
             "version": "prometheus/v1",
             "service": "my-service",
@@ -46,6 +47,21 @@ class MyCharm(ops.CharmBase):
             ],
         }
         self.slo_provider.provide_slo(slo_spec)
+        
+        # Multiple SLO specs (for multiple services)
+        slo_specs = [
+            {
+                "version": "prometheus/v1",
+                "service": "my-service",
+                "slos": [{"name": "availability", "objective": 99.9, ...}],
+            },
+            {
+                "version": "prometheus/v1",
+                "service": "my-other-service",
+                "slos": [{"name": "latency", "objective": 99.5, ...}],
+            }
+        ]
+        self.slo_provider.provide_slos(slo_specs)
 ```
 
 ### Requirer Side (Sloth charm)
@@ -72,8 +88,9 @@ class SlothCharm(ops.CharmBase):
 ## Relation Data Format
 
 SLO specifications are stored in the relation databag as YAML strings under the
-`slo_spec` key. Each provider unit can provide one SLO specification.
+`slo_spec` key. Each provider unit can provide one or more SLO specifications.
 
+For a single service:
 ```yaml
 slo_spec: |
   version: prometheus/v1
@@ -92,6 +109,22 @@ slo_spec: |
         name: MyServiceHighErrorRate
         labels:
           severity: critical
+```
+
+For multiple services (separated by YAML document separators):
+```yaml
+slo_spec: |
+  version: prometheus/v1
+  service: my-service
+  slos:
+    - name: requests-availability
+      objective: 99.9
+  ---
+  version: prometheus/v1
+  service: my-other-service
+  slos:
+    - name: requests-latency
+      objective: 99.5
 ```
 """
 
@@ -112,7 +145,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 1
+LIBPATCH = 2
 
 DEFAULT_RELATION_NAME = "slos"
 
@@ -191,26 +224,49 @@ class SLOProvider(ops.Object):
         Raises:
             ValidationError: If the SLO specification is invalid.
         """
-        # Validate the SLO spec
-        try:
-            SLOSpec(**slo_spec)
-        except ValidationError as e:
-            logger.error(f"Invalid SLO specification: {e}")
-            raise
+        self.provide_slos([slo_spec])
+
+    def provide_slos(self, slo_specs: List[Dict[str, Any]]) -> None:
+        """Provide multiple SLO specifications to Sloth.
+
+        This method allows providing SLO specs for multiple services at once.
+        All specs are validated and merged into a single YAML document with
+        multiple documents (separated by ---).
+
+        Args:
+            slo_specs: List of dictionaries containing SLO specifications in Sloth format.
+                Each must include: version, service, slos (list).
+
+        Raises:
+            ValidationError: If any SLO specification is invalid.
+        """
+        if not slo_specs:
+            logger.warning("No SLO specs provided")
+            return
+
+        # Validate all SLO specs
+        for slo_spec in slo_specs:
+            try:
+                SLOSpec(**slo_spec)
+            except ValidationError as e:
+                logger.error(f"Invalid SLO specification: {e}")
+                raise
 
         relations = self._charm.model.relations.get(self._relation_name, [])
         if not relations:
             logger.warning(f"No {self._relation_name} relation found")
             return
 
-        # Convert to YAML for storage in relation databag
-        slo_yaml = yaml.safe_dump(slo_spec)
+        # Merge multiple specs into a single YAML with document separators
+        slo_yaml_docs = [yaml.safe_dump(spec, default_flow_style=False) for spec in slo_specs]
+        merged_yaml = "---\n".join(slo_yaml_docs)
 
         for relation in relations:
             # Each unit provides its SLO spec in its own databag
-            relation.data[self._charm.unit]["slo_spec"] = slo_yaml
+            relation.data[self._charm.unit]["slo_spec"] = merged_yaml
+            services = [spec['service'] for spec in slo_specs]
             logger.info(
-                f"Provided SLO spec for service '{slo_spec['service']}' "
+                f"Provided {len(slo_specs)} SLO spec(s) for service(s) {services} "
                 f"to relation {relation.id}"
             )
 
@@ -260,6 +316,7 @@ class SLORequirer(ops.Object):
 
         Returns:
             List of SLO specification dictionaries from all related units.
+            Each unit may provide multiple SLO specs as a multi-document YAML.
         """
         slos = []
         relations = self._charm.model.relations.get(self._relation_name, [])
@@ -271,21 +328,26 @@ class SLORequirer(ops.Object):
                     if not slo_yaml:
                         continue
 
-                    slo_spec = yaml.safe_load(slo_yaml)
+                    # Parse as multi-document YAML (supports both single and multiple docs)
+                    slo_specs = list(yaml.safe_load_all(slo_yaml))
 
-                    # Validate the SLO spec
-                    try:
-                        SLOSpec(**slo_spec)
-                        slos.append(slo_spec)
-                        logger.debug(
-                            f"Collected SLO spec for service '{slo_spec['service']}' "
-                            f"from {unit.name}"
-                        )
-                    except ValidationError as e:
-                        logger.error(
-                            f"Invalid SLO spec from {unit.name}: {e}"
-                        )
-                        continue
+                    # Validate and collect each SLO spec
+                    for slo_spec in slo_specs:
+                        if not slo_spec:  # Skip empty documents
+                            continue
+
+                        try:
+                            SLOSpec(**slo_spec)
+                            slos.append(slo_spec)
+                            logger.debug(
+                                f"Collected SLO spec for service '{slo_spec['service']}' "
+                                f"from {unit.name}"
+                            )
+                        except ValidationError as e:
+                            logger.error(
+                                f"Invalid SLO spec from {unit.name}: {e}"
+                            )
+                            continue
 
                 except Exception as e:
                     logger.error(

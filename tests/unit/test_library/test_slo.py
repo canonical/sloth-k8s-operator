@@ -221,6 +221,88 @@ class TestSLOProvider:
             slo_data = yaml.safe_load(slo_yaml)
             assert slo_data["service"] == "test-service"
 
+    def test_provide_slos_with_multiple_specs(self):
+        """Test providing multiple SLO specs at once."""
+        context = Context(
+            ProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            charm.slo_provider.provide_slos([VALID_SLO_SPEC, VALID_SLO_SPEC_2])
+            state_out = mgr.run()
+
+        # Check that both SLOs were set in relation data as multi-document YAML
+        relation_out = state_out.get_relation(slo_relation.id)
+        slo_yaml = relation_out.local_unit_data.get("slo_spec")
+        assert slo_yaml is not None
+
+        # Parse multi-document YAML
+        slo_docs = list(yaml.safe_load_all(slo_yaml))
+        assert len(slo_docs) == 2
+
+        services = {doc["service"] for doc in slo_docs}
+        assert services == {"test-service", "another-service"}
+
+    def test_provide_slos_with_empty_list(self):
+        """Test that providing empty list logs warning."""
+        context = Context(
+            ProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        # Should not raise error, just log warning
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            charm.slo_provider.provide_slos([])
+            state_out = mgr.run()
+
+        # Relation data should be empty
+        relation_out = state_out.get_relation(slo_relation.id)
+        slo_yaml = relation_out.local_unit_data.get("slo_spec")
+        assert slo_yaml is None
+
+    def test_provide_slos_validates_all_specs(self):
+        """Test that all specs are validated before providing."""
+        context = Context(
+            ProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            # One valid, one invalid - should raise ValidationError
+            with pytest.raises(ValidationError):
+                charm.slo_provider.provide_slos([VALID_SLO_SPEC, INVALID_SLO_SPEC_BAD_VERSION])
+
+    def test_provide_slo_calls_provide_slos(self):
+        """Test that provide_slo is a wrapper around provide_slos."""
+        context = Context(
+            ProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            charm.slo_provider.provide_slo(VALID_SLO_SPEC)
+            state_out = mgr.run()
+
+        # Should work the same as before
+        relation_out = state_out.get_relation(slo_relation.id)
+        slo_yaml = relation_out.local_unit_data.get("slo_spec")
+        assert slo_yaml is not None
+        slo_data = yaml.safe_load(slo_yaml)
+        assert slo_data["service"] == "test-service"
+
 
 class TestSLORequirer:
     """Tests for the SLORequirer class."""
@@ -288,6 +370,36 @@ class TestSLORequirer:
             slos = charm.slo_requirer.get_slos()
             _ = mgr.run()
 
+        assert len(slos) == 2
+        services = {slo["service"] for slo in slos}
+        assert services == {"test-service", "another-service"}
+
+    def test_get_slos_from_unit_with_multi_document_yaml(self):
+        """Test getting multiple SLOs from a single unit (multi-document YAML)."""
+        # Merge two specs into multi-document YAML (like provide_slos does)
+        slo_yaml_multi = "---\n".join([
+            yaml.safe_dump(VALID_SLO_SPEC, default_flow_style=False),
+            yaml.safe_dump(VALID_SLO_SPEC_2, default_flow_style=False)
+        ])
+
+        slo_relation = Relation(
+            "slos",
+            remote_app_name="provider",
+            remote_units_data={0: {"slo_spec": slo_yaml_multi}},
+        )
+
+        context = Context(
+            RequirerCharm,
+            meta={"name": "requirer", "provides": {"slos": {"interface": "slo"}}},
+        )
+        state = State(relations=[slo_relation])
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            slos = charm.slo_requirer.get_slos()
+            _ = mgr.run()
+
+        # Should get both SLOs from the single unit
         assert len(slos) == 2
         services = {slo["service"] for slo in slos}
         assert services == {"test-service", "another-service"}
