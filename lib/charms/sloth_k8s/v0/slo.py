@@ -47,7 +47,7 @@ class MyCharm(ops.CharmBase):
             ],
         }
         self.slo_provider.provide_slo(slo_spec)
-        
+
         # Multiple SLO specs (for multiple services)
         slo_specs = [
             {
@@ -129,11 +129,18 @@ slo_spec: |
 """
 
 import logging
+import re
 from typing import Any, Dict, List
 
 import ops
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
+
+try:
+    from cosl import JujuTopology
+except ImportError:
+    # Fallback if cosl is not available
+    JujuTopology = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -145,9 +152,81 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 2
+LIBPATCH = 4
 
 DEFAULT_RELATION_NAME = "slos"
+
+
+def inject_topology_labels(query: str, topology: Dict[str, str]) -> str:
+    """Inject Juju topology labels into a Prometheus query.
+
+    This function adds Juju topology labels (juju_application, juju_model, etc.)
+    to all metric selectors in a PromQL query that don't already have them.
+
+    Only metrics with explicit selectors (either {labels} or [time]) are modified.
+    Function names like sum(), rate(), etc. are not modified.
+
+    Args:
+        query: The Prometheus query string
+        topology: Dictionary of label names to values (e.g., {"juju_application": "my-app"})
+
+    Returns:
+        Query with topology labels injected
+
+    Examples:
+        >>> inject_topology_labels(
+        ...     'sum(rate(metric[5m]))',
+        ...     {"juju_application": "my-app"}
+        ... )
+        'sum(rate(metric{juju_application="my-app"}[5m]))'
+
+        >>> inject_topology_labels(
+        ...     'sum(rate(metric{existing="label"}[5m]))',
+        ...     {"juju_application": "my-app"}
+        ... )
+        'sum(rate(metric{existing="label",juju_application="my-app"}[5m]))'
+    """
+    if not topology:
+        return query
+
+    # Build the label matcher string
+    topology_labels = ','.join([f'{k}="{v}"' for k, v in sorted(topology.items())])
+
+    # First pass: inject into metrics with {labels}
+    def replace_labels(match: re.Match) -> str:
+        metric_name = match.group(1)
+        labels_with_braces = match.group(2)
+        
+        # Strip the braces to get just the label content
+        labels_content = labels_with_braces[1:-1] if len(labels_with_braces) > 2 else ""
+
+        if labels_content:
+            # Has existing labels, append topology
+            new_labels = f"{{{labels_content},{topology_labels}}}"
+        else:
+            # Empty labels, add topology
+            new_labels = f"{{{topology_labels}}}"
+
+        return f"{metric_name}{new_labels}"
+
+    # Match metric_name{labels} - greedy match captures all content including {{.window}}
+    query = re.sub(r'([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})', replace_labels, query)
+
+    # Second pass: inject into metrics with [time] but no labels yet
+    def replace_time(match: re.Match) -> str:
+        metric_name = match.group(1)
+        time_selector = match.group(2)
+
+        # Check if metric_name already ends with } (labels were added in first pass)
+        if not metric_name.endswith('}'):
+            return f"{metric_name}{{{topology_labels}}}{time_selector}"
+
+        return match.group(0)
+
+    # Match metric_name[time]
+    query = re.sub(r'([a-zA-Z_:][a-zA-Z0-9_:]*)(\[[^\]]*\])', replace_time, query)
+
+    return query
 
 
 class SLOSpec(BaseModel):
@@ -201,6 +280,9 @@ class SLOProvider(ops.Object):
     Args:
         charm: The charm instance.
         relation_name: Name of the relation (default: "slos").
+        inject_topology: Whether to automatically inject Juju topology labels
+            into Prometheus queries (default: True). When enabled, labels like
+            juju_application, juju_model, etc. are added to metric selectors.
     """
 
     on = SLOProviderEvents()
@@ -209,10 +291,64 @@ class SLOProvider(ops.Object):
         self,
         charm: ops.CharmBase,
         relation_name: str = DEFAULT_RELATION_NAME,
+        inject_topology: bool = True,
     ):
         super().__init__(charm, relation_name)
         self._charm = charm
         self._relation_name = relation_name
+        self._inject_topology = inject_topology
+
+    def _get_topology_labels(self) -> Dict[str, str]:
+        """Get Juju topology labels for this charm.
+
+        Returns:
+            Dictionary of topology labels (juju_application, juju_model, etc.)
+        """
+        if JujuTopology is None:
+            # Fallback to basic topology if cosl is not available
+            return {"juju_application": self._charm.app.name}
+
+        try:
+            topology = JujuTopology.from_charm(self._charm)
+            return topology.label_matcher_dict
+        except Exception as e:
+            logger.warning(f"Failed to get full topology, using app name only: {e}")
+            return {"juju_application": self._charm.app.name}
+
+    def _inject_topology_into_slo(self, slo_spec: Dict[str, Any]) -> Dict[str, Any]:
+        """Inject topology labels into SLO queries.
+
+        Args:
+            slo_spec: SLO specification dictionary
+
+        Returns:
+            SLO specification with topology labels injected into queries
+        """
+        if not self._inject_topology:
+            return slo_spec
+
+        topology_labels = self._get_topology_labels()
+
+        # Deep copy to avoid modifying the original
+        import copy
+        slo_spec = copy.deepcopy(slo_spec)
+
+        # Inject topology into each SLO's queries
+        for slo in slo_spec.get("slos", []):
+            if "sli" in slo and "events" in slo["sli"]:
+                events = slo["sli"]["events"]
+
+                if "error_query" in events:
+                    events["error_query"] = inject_topology_labels(
+                        events["error_query"], topology_labels
+                    )
+
+                if "total_query" in events:
+                    events["total_query"] = inject_topology_labels(
+                        events["total_query"], topology_labels
+                    )
+
+        return slo_spec
 
     def provide_slo(self, slo_spec: Dict[str, Any]) -> None:
         """Provide an SLO specification to Sloth.
@@ -256,6 +392,10 @@ class SLOProvider(ops.Object):
         if not relations:
             logger.warning(f"No {self._relation_name} relation found")
             return
+
+        # Inject topology labels into queries if enabled
+        if self._inject_topology:
+            slo_specs = [self._inject_topology_into_slo(spec) for spec in slo_specs]
 
         # Merge multiple specs into a single YAML with document separators
         slo_yaml_docs = [yaml.safe_dump(spec, default_flow_style=False) for spec in slo_specs]

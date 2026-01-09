@@ -620,3 +620,181 @@ class TestSLOIntegration:
         assert len(slos) == 1
         assert slos[0]["service"] == "test-service"
         assert slos[0]["version"] == "prometheus/v1"
+
+
+class TestTopologyInjection:
+    """Tests for Juju topology label injection."""
+
+    def test_inject_topology_simple_metric(self):
+        """Test injecting topology into a simple metric query."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = "sum(rate(http_requests_total[5m]))"
+        topology = {"juju_application": "my-app"}
+
+        result = inject_topology_labels(query, topology)
+
+        assert 'juju_application="my-app"' in result
+        assert "http_requests_total{" in result
+
+    def test_inject_topology_with_existing_labels(self):
+        """Test injecting topology when labels already exist."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = 'sum(rate(http_requests_total{status="5.."}[5m]))'
+        topology = {"juju_application": "my-app"}
+
+        result = inject_topology_labels(query, topology)
+
+        assert 'juju_application="my-app"' in result
+        assert 'status="5.."' in result
+        # Both labels should be present
+        assert result.count("{") >= 1
+
+    def test_inject_topology_multiple_metrics(self):
+        """Test injecting topology into query with multiple metrics."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = "sum(rate(metric1[5m])) - sum(rate(metric2[5m]))"
+        topology = {"juju_application": "my-app"}
+
+        result = inject_topology_labels(query, topology)
+
+        # Should inject into both metrics
+        assert result.count('juju_application="my-app"') == 2
+
+    def test_inject_topology_empty_topology(self):
+        """Test that empty topology doesn't modify query."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = "sum(rate(http_requests_total[5m]))"
+        topology = {}
+
+        result = inject_topology_labels(query, topology)
+
+        assert result == query
+
+    def test_inject_topology_multiple_labels(self):
+        """Test injecting multiple topology labels."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = "sum(rate(metric[5m]))"
+        topology = {
+            "juju_application": "my-app",
+            "juju_model": "my-model",
+            "juju_unit": "my-app/0"
+        }
+
+        result = inject_topology_labels(query, topology)
+
+        assert 'juju_application="my-app"' in result
+        assert 'juju_model="my-model"' in result
+        assert 'juju_unit="my-app/0"' in result
+
+    def test_provider_injects_topology_by_default(self):
+        """Test that SLOProvider injects topology by default."""
+        context = Context(
+            ProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        # SLO spec without topology labels in queries
+        slo_spec = {
+            "version": "prometheus/v1",
+            "service": "test-service",
+            "slos": [
+                {
+                    "name": "availability",
+                    "objective": 99.9,
+                    "description": "Test SLO",
+                    "sli": {
+                        "events": {
+                            "error_query": "sum(rate(metric[5m]))",
+                            "total_query": "sum(rate(metric[5m]))",
+                        }
+                    },
+                }
+            ],
+        }
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            charm.slo_provider.provide_slo(slo_spec)
+            state_out = mgr.run()
+
+        # Check that topology was injected
+        relation_out = state_out.get_relation(slo_relation.id)
+        slo_yaml = relation_out.local_unit_data.get("slo_spec")
+        assert slo_yaml is not None
+
+        # Parse and check
+        slo_data = yaml.safe_load(slo_yaml)
+        error_query = slo_data["slos"][0]["sli"]["events"]["error_query"]
+
+        # Should have juju_application injected
+        assert "juju_application" in error_query
+
+    def test_provider_can_disable_topology_injection(self):
+        """Test that topology injection can be disabled."""
+        # Create a charm with topology injection disabled
+        class NoTopologyProviderCharm(CharmBase):
+            def __init__(self, *args):
+                super().__init__(*args)
+                self.slo_provider = SLOProvider(self, relation_name="slos", inject_topology=False)
+
+        context = Context(
+            NoTopologyProviderCharm,
+            meta={"name": "provider", "requires": {"slos": {"interface": "slo"}}},
+        )
+        slo_relation = Relation("slos")
+        state = State(relations=[slo_relation])
+
+        slo_spec = {
+            "version": "prometheus/v1",
+            "service": "test-service",
+            "slos": [
+                {
+                    "name": "availability",
+                    "objective": 99.9,
+                    "description": "Test SLO",
+                    "sli": {
+                        "events": {
+                            "error_query": "sum(rate(metric[5m]))",
+                            "total_query": "sum(rate(metric[5m]))",
+                        }
+                    },
+                }
+            ],
+        }
+
+        with context(context.on.start(), state) as mgr:
+            charm = mgr.charm
+            charm.slo_provider.provide_slo(slo_spec)
+            state_out = mgr.run()
+
+        # Check that topology was NOT injected
+        relation_out = state_out.get_relation(slo_relation.id)
+        slo_yaml = relation_out.local_unit_data.get("slo_spec")
+        assert slo_yaml is not None
+
+        slo_data = yaml.safe_load(slo_yaml)
+        error_query = slo_data["slos"][0]["sli"]["events"]["error_query"]
+
+        # Should NOT have juju_application
+        assert "juju_application" not in error_query
+        assert error_query == "sum(rate(metric[5m]))"
+
+    def test_topology_injection_preserves_sloth_templates(self):
+        """Test that topology injection preserves Sloth's {{.window}} template."""
+        from lib.charms.sloth_k8s.v0.slo import inject_topology_labels
+
+        query = "sum(rate(metric[{{.window}}]))"
+        topology = {"juju_application": "my-app"}
+
+        result = inject_topology_labels(query, topology)
+
+        # Should preserve the {{.window}} template
+        assert "{{.window}}" in result
+        assert 'juju_application="my-app"' in result
