@@ -14,6 +14,9 @@ links:
   source: https://github.com/canonical/sloth-k8s-operator
   issues: https://github.com/canonical/sloth-k8s-operator/issues
 
+assumes:
+  - juju >= 3.6
+
 platforms:
   ubuntu@24.04:amd64:
 
@@ -27,32 +30,15 @@ parts:
       craftctl default
       git describe --always > $CRAFT_PART_INSTALL/version
 
-assumes:
-  - juju >= 3.6
-
 containers:
   sloth:
     resource: sloth-image
-  nginx:
-    resource: nginx-image
-  nginx-prometheus-exporter:
-    resource: nginx-prometheus-exporter-image
-
 
 resources:
   sloth-image:
     type: oci-image
     description: OCI image for sloth
-    # Included for simplicity in integration tests
-    upstream-source: ghcr.io/slok/sloth:v0.11.0
-  nginx-image:
-    type: oci-image
-    description: OCI image for nginx
-    upstream-source: ubuntu/nginx:1.24-24.04_beta
-  nginx-prometheus-exporter-image:
-    type: oci-image
-    description: OCI image for nginx-prometheus-exporter
-    upstream-source: nginx/nginx-prometheus-exporter:1.1.0
+    upstream-source: ghcr.io/slok/sloth:v0.11.0  # TODO: Make this a rock
 
 requires:
   catalogue:
@@ -106,12 +92,6 @@ peers:
   sloth-peers:
     interface: sloth_peers
 
-actions:
-  list-endpoints:
-    description: | 
-      Return the endpoints that the sloth server is listening on.
-      Will list both direct and ingressed hosts.
-
 config:
   options:
     slo-period:
@@ -119,3 +99,9 @@ config:
         The period for SLO calculations (e.g., "30d" for 30 days).
       type: string
       default: "30d"
+
+actions:
+  list-endpoints:
+    description: | 
+      Return the endpoints that the sloth server is listening on.
+      Will list both direct and ingressed hosts.

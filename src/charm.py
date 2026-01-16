@@ -25,10 +25,7 @@ from charms.tls_certificates_interface.v4.tls_certificates import (
     TLSCertificatesRequiresV4,
 )
 
-from ingress_configuration import EntryPoint, Protocol, TraefikRouteEndpoint
 from models import TLSConfig
-from nginx import Address, Nginx
-from nginx_prometheus_exporter import NginxPrometheusExporter
 from sloth import Sloth
 
 logger = logging.getLogger(__name__)
@@ -38,7 +35,6 @@ CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
 
 CERTIFICATES_RELATION_NAME = "certificates"
 SLOTH_CONTAINER = "sloth"
-NGINX_CONTAINER = "nginx"
 
 
 class SlothOperatorCharm(ops.CharmBase):
@@ -48,25 +44,18 @@ class SlothOperatorCharm(ops.CharmBase):
         super().__init__(*args)
         self._fqdn = socket.getfqdn()
 
-        # ENDPOINT WRAPPERS
+        # Relation endpoints
         self.certificates = TLSCertificatesRequiresV4(
             charm=self,
             relationship_name=CERTIFICATES_RELATION_NAME,
             certificate_requests=[self._get_certificate_request_attributes()],
             mode=Mode.UNIT,
         )
-        self.ingress = TraefikRouteEndpoint(
-            self,
-            tls=self._tls_ready,
-            entrypoints=(
-                EntryPoint("sloth-http", Protocol.http, Nginx.parca_http_server_port),
-            ),
-        )
         self.metrics_endpoint_provider = MetricsEndpointProvider(
             self,
             jobs=self._metrics_scrape_jobs,
             alert_rules_path="src/prometheus_alert_rules",
-            external_url=self.http_server_url,
+            # external_url=self.http_server_url,
             refresh_event=[self.certificates.on.certificate_available],
         )
 
@@ -78,7 +67,7 @@ class SlothOperatorCharm(ops.CharmBase):
             item=CatalogueItem(
                 "Sloth UI",
                 icon="gauge",
-                url=self.http_server_url,
+                url=self._fqdn,
                 description="""SLI/SLO generator for Prometheus. Generates alerting and recording rules.""",
             ),
         )
@@ -93,22 +82,12 @@ class SlothOperatorCharm(ops.CharmBase):
             self._on_slos_changed,
         )
 
-        # WORKLOADS
-        self.nginx = Nginx(
-            container=self.unit.get_container(Nginx.container_name),
-            server_name=self._fqdn,
-            address=Address(name="sloth", port=Sloth.port),
-            tls_config=None,  # Will be updated during reconcile
-        )
+        # Workloads
         self.sloth = Sloth(
             container=self.unit.get_container(Sloth.container_name),
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
             tls_config=None,  # Will be updated during reconcile
             additional_slos=[],  # Will be updated during reconcile
-        )
-        self.nginx_exporter = NginxPrometheusExporter(
-            container=self.unit.get_container(NginxPrometheusExporter.container_name),
-            nginx_port=Nginx.parca_http_server_port,
         )
 
         # event handlers
@@ -126,16 +105,10 @@ class SlothOperatorCharm(ops.CharmBase):
         self.framework.observe(self.on.config_changed, self._on_reconcile_event)
         self.framework.observe(self.on.update_status, self._on_reconcile_event)
         self.framework.observe(self.on.sloth_pebble_ready, self._on_reconcile_event)
-        self.framework.observe(self.on.nginx_pebble_ready, self._on_reconcile_event)
-        self.framework.observe(self.on.nginx_prometheus_exporter_pebble_ready, self._on_reconcile_event)
 
         # Observe relation events that need reconciliation
-        self.framework.observe(
-            self.on.metrics_endpoint_relation_joined, self._on_reconcile_event
-        )
-        self.framework.observe(
-            self.on.metrics_endpoint_relation_changed, self._on_reconcile_event
-        )
+        self.framework.observe(self.on.metrics_endpoint_relation_joined, self._on_reconcile_event)
+        self.framework.observe(self.on.metrics_endpoint_relation_changed, self._on_reconcile_event)
 
         self.framework.observe(self.on.list_endpoints_action, self._on_list_endpoints_action)
 
@@ -159,13 +132,11 @@ class SlothOperatorCharm(ops.CharmBase):
         """Unconditional logic to run regardless of the event we are processing."""
         # Update TLS config on workloads before reconciling
         tls_config = self._tls_config
-        self.nginx._tls_config = tls_config
         self.sloth._tls_config = tls_config
 
         # Update SLOs from relations
         self.sloth._additional_slos = self.slo_requirer.get_slos()
 
-        self.unit.set_ports(Nginx.parca_http_server_port)
         if self.charm_tracing.is_ready() and (
             endpoint := self.charm_tracing.get_endpoint("otlp_http")
         ):
@@ -175,16 +146,6 @@ class SlothOperatorCharm(ops.CharmBase):
             )
 
         # Reconcile each workload independently - failures in one shouldn't block others
-        try:
-            self.nginx.reconcile()
-        except Exception as e:
-            logger.error(f"Nginx reconciliation failed: {e}")
-
-        try:
-            self.nginx_exporter.reconcile()
-        except Exception as e:
-            logger.error(f"Nginx exporter reconciliation failed: {e}")
-
         try:
             self.sloth.reconcile()
         except Exception as e:
@@ -196,7 +157,6 @@ class SlothOperatorCharm(ops.CharmBase):
     def _reconcile_relations(self):
         self.metrics_endpoint_provider.set_scrape_job_spec()
         self._update_alert_rules()
-        self.ingress.reconcile()
 
     def _update_alert_rules(self):
         """Update alert rules from generated SLO specifications."""
@@ -234,24 +194,6 @@ class SlothOperatorCharm(ops.CharmBase):
         else:
             cacert_path.unlink(missing_ok=True)
 
-    # INGRESS/ROUTING PROPERTIES
-    @property
-    def http_server_url(self):
-        """Http server url; ingressed if available, else over fqdn."""
-        if external_host := self.ingress.http_external_host:
-            return f"{external_host}:{Nginx.parca_http_server_port}"
-        return f"{self._internal_scheme}://{self._fqdn}:{Nginx.parca_http_server_port}"
-
-    @property
-    def _scheme(self):
-        """Return ingress scheme if available, else return the internal scheme."""
-        return self.ingress.scheme or self._internal_scheme
-
-    @property
-    def _internal_scheme(self) -> str:
-        """Return 'https' if TLS is available else 'http'."""
-        return "https" if self._tls_ready else "http"
-
     # TLS CONFIG
     @property
     def _tls_config(self) -> Optional["TLSConfig"]:
@@ -278,26 +220,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
     @property
     def _metrics_scrape_jobs(self) -> List[Dict]:
-        return self._prometheus_scrape_target(
-            NginxPrometheusExporter.port,
-            scheme="http",
-        ) + self._prometheus_scrape_target(
-            Nginx.parca_http_server_port,
-            scheme=self._internal_scheme,
-        )
-
-    def _prometheus_scrape_target(self, port: int, **kwargs):
-        tls_config_ca_file_key = "ca_file"
-        scheme = kwargs.get("scheme", "http")
-        job: Dict = {"targets": [f"{self._fqdn}:{port}"]}
-        jobs_config: Dict = {"static_configs": [job]}
-        if scheme == "https":
-            jobs_config["scheme"] = "https"
-            if Path(CA_CERT_PATH).exists():
-                jobs_config["tls_config"] = {
-                    tls_config_ca_file_key: Path(CA_CERT_PATH).read_text()
-                }
-        return [jobs_config]
+        return []
 
     # EVENT HANDLERS
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent):
@@ -311,7 +234,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
         containers_not_ready = [
             workload.container_name
-            for workload in {Sloth, Nginx, NginxPrometheusExporter}
+            for workload in {Sloth}
             if not self.unit.get_container(workload.container_name).can_connect()
         ]
 
@@ -322,7 +245,7 @@ class SlothOperatorCharm(ops.CharmBase):
         else:
             self.unit.set_workload_version(self.sloth.version)
 
-        event.add_status(ops.ActiveStatus(f"UI ready at {self.http_server_url}"))
+        event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
 
     def _on_reconcile_event(self, event: ops.EventBase):
         """Handle events that require reconciliation."""
@@ -342,15 +265,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
     def _on_list_endpoints_action(self, event: ops.ActionEvent):
         """React to the list-endpoints action."""
-        out = {
-            "direct-http-url": f"{self._scheme}://{self._fqdn}:{Nginx.parca_http_server_port}",
-        }
-
-        if http_external_host := self.ingress.http_external_host:
-            out["ingressed-http-url"] = (
-                f"{http_external_host}:{Nginx.parca_http_server_port}"
-            )
-        event.set_results(out)
+        event.set_results({})  # TODO: Set endpoints after we have a UI
 
 
 if __name__ == "__main__":  # pragma: nocover
