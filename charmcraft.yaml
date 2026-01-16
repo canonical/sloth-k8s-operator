@@ -99,9 +99,3 @@ config:
         The period for SLO calculations (e.g., "30d" for 30 days).
       type: string
       default: "30d"
-
-actions:
-  list-endpoints:
-    description: | 
-      Return the endpoints that the sloth server is listening on.
-      Will list both direct and ingressed hosts.
