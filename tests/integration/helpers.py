@@ -5,7 +5,6 @@ from subprocess import getoutput, getstatusoutput
 from typing import Tuple
 
 from jubilant import Juju
-
 from nginx import CA_CERT_PATH, Nginx
 
 SLOTH = "sloth"

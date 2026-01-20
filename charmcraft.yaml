@@ -14,6 +14,9 @@ links:
   source: https://github.com/canonical/sloth-k8s-operator
   issues: https://github.com/canonical/sloth-k8s-operator/issues
 
+assumes:
+  - juju >= 3.6
+
 platforms:
   ubuntu@24.04:amd64:
 
@@ -27,57 +30,30 @@ parts:
       craftctl default
       git describe --always > $CRAFT_PART_INSTALL/version
 
-assumes:
-  - juju >= 3.6
-
 containers:
   sloth:
     resource: sloth-image
-  nginx:
-    resource: nginx-image
-  nginx-prometheus-exporter:
-    resource: nginx-prometheus-exporter-image
-
 
 resources:
   sloth-image:
     type: oci-image
     description: OCI image for sloth
-    # Included for simplicity in integration tests
-    upstream-source: ghcr.io/slok/sloth:v0.11.0
-  nginx-image:
-    type: oci-image
-    description: OCI image for nginx
-    upstream-source: ubuntu/nginx:1.24-24.04_beta
-  nginx-prometheus-exporter-image:
-    type: oci-image
-    description: OCI image for nginx-prometheus-exporter
-    upstream-source: nginx/nginx-prometheus-exporter:1.1.0
+    upstream-source: ghcr.io/slok/sloth:v0.11.0  # TODO: Make this a rock
 
 requires:
-  catalogue:
-    optional: true
-    interface: catalogue
-    description: Display sloth entry in the COS catalogue frontend.
-  ingress:
-    optional: true
-    interface: traefik_route
-    limit: 1
-    description: |
-      Ingress integration for the Sloth server.
   charm-tracing:
     optional: true
     description: |
       Enables sending charm traces to a distributed tracing backend such as Tempo.
     limit: 1
     interface: tracing
-  certificates:
+  receive-ca-cert:
+    interface: certificate_transfer
     optional: true
-    interface: tls-certificates
-    limit: 1
     description: |
-      Certificate and key files for securing Sloth's external
-      communications through TLS.
+      Receive a CA cert for grafana to trust.
+      This relation can be used with a local CA to obtain the CA cert that was used to sign proxied
+      endpoints.
   logging:
     optional: true
     interface: loki_push_api
@@ -105,12 +81,6 @@ provides:
 peers:
   sloth-peers:
     interface: sloth_peers
-
-actions:
-  list-endpoints:
-    description: | 
-      Return the endpoints that the sloth server is listening on.
-      Will list both direct and ingressed hosts.
 
 config:
   options:

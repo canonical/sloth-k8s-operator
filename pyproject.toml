@@ -1,12 +1,13 @@
 # Testing tools configuration
 [project]
 name = "sloth-k8s-operator"
-version = "0.1.0"
+version = "0.0.0"
 requires-python = ">=3.10"
 
 dependencies = [
     "ops[tracing]",
-    "pydantic <3",
+    "pydantic>=2,<3",
+    "cosl",
     "coordinated_workers",
     # ---PYDEPS---
     # lib/charms/tls_certificates_interface/v4/tls_certificates.py
@@ -72,3 +73,15 @@ per-file-ignores = { "tests/*" = ["D100", "D101", "D102", "D103", "D104"] }
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pyright]
+extraPaths = ["src", "lib"]
+pythonVersion = "3.8"
+pythonPlatform = "All"
+
+[tool.codespell]
+skip = ".git,.tox,build,venv*"
+ignore-words-list = "assertIn"
