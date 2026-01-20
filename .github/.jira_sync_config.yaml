@@ -6,7 +6,7 @@ settings:
     not_planned: rejected
     
   components:
-    - parca
+    - sloth
     - team-tracing
       
   add_gh_comment: false
