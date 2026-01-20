@@ -6,5 +6,5 @@ module.exports = {
   onboarding: true,
   platform: "github",
   includeForks: true,
-  repositories: ["canonical/parca-k8s-operator"],
+  repositories: ["canonical/sloth-k8s-operator"],
 }
