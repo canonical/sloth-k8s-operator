@@ -96,12 +96,6 @@ class SlothOperatorCharm(ops.CharmBase):
 
         # Observe events that should trigger reconciliation
         cosl.reconciler.observe_events(self, cosl.reconciler.all_events, self._on_reconcile_event)
-        # Observe relation events that need reconciliation
-        cosl.reconciler.observe_events(
-            self,
-            {self.on.metrics_endpoint_relation_joined, self.on.metrics_endpoint_relation_changed},
-            self._on_reconcile_event,
-        )
 
         # unconditional logic - safe to call even if containers aren't ready
         try:
