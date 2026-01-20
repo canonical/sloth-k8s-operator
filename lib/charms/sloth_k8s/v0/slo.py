@@ -196,7 +196,7 @@ def inject_topology_labels(query: str, topology: Dict[str, str]) -> str:
     def replace_labels(match: re.Match) -> str:
         metric_name = match.group(1)
         labels_with_braces = match.group(2)
-        
+
         # Strip the braces to get just the label content
         labels_content = labels_with_braces[1:-1] if len(labels_with_braces) > 2 else ""
 

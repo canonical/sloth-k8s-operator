@@ -8,24 +8,22 @@ import logging
 import socket
 import typing
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Optional
+from typing import Dict, List
 
+import cosl.reconciler
 import ops
 import ops_tracing
 import yaml
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
+from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificateTransferRequires,
+)
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.sloth_k8s.v0.slo import SLORequirer
 from charms.tempo_coordinator_k8s.v0.tracing import TracingEndpointRequirer
-from charms.tls_certificates_interface.v4.tls_certificates import (
-    CertificateRequestAttributes,
-    Mode,
-    TLSCertificatesRequiresV4,
-)
 
-from models import TLSConfig
 from sloth import Sloth
 
 logger = logging.getLogger(__name__)
@@ -45,18 +43,13 @@ class SlothOperatorCharm(ops.CharmBase):
         self._fqdn = socket.getfqdn()
 
         # Relation endpoints
-        self.certificates = TLSCertificatesRequiresV4(
-            charm=self,
-            relationship_name=CERTIFICATES_RELATION_NAME,
-            certificate_requests=[self._get_certificate_request_attributes()],
-            mode=Mode.UNIT,
+        self.certificate_transfer = CertificateTransferRequires(
+            self, relationship_name="receive-ca-cert"
         )
         self.metrics_endpoint_provider = MetricsEndpointProvider(
             self,
             jobs=self._metrics_scrape_jobs,
             alert_rules_path="src/prometheus_alert_rules",
-            # external_url=self.http_server_url,
-            refresh_event=[self.certificates.on.certificate_available],
         )
 
         self.grafana_dashboard_provider = GrafanaDashboardProvider(self)
@@ -102,15 +95,13 @@ class SlothOperatorCharm(ops.CharmBase):
             return
 
         # Observe events that should trigger reconciliation
-        self.framework.observe(self.on.config_changed, self._on_reconcile_event)
-        self.framework.observe(self.on.update_status, self._on_reconcile_event)
-        self.framework.observe(self.on.sloth_pebble_ready, self._on_reconcile_event)
-
+        cosl.reconciler.observe_events(self, cosl.reconciler.all_events, self._on_reconcile_event)
         # Observe relation events that need reconciliation
-        self.framework.observe(self.on.metrics_endpoint_relation_joined, self._on_reconcile_event)
-        self.framework.observe(self.on.metrics_endpoint_relation_changed, self._on_reconcile_event)
-
-        self.framework.observe(self.on.list_endpoints_action, self._on_list_endpoints_action)
+        cosl.reconciler.observe_events(
+            self,
+            {self.on.metrics_endpoint_relation_joined, self.on.metrics_endpoint_relation_changed},
+            self._on_reconcile_event,
+        )
 
         # unconditional logic - safe to call even if containers aren't ready
         try:
@@ -151,7 +142,7 @@ class SlothOperatorCharm(ops.CharmBase):
         except Exception as e:
             logger.error(f"Sloth reconciliation failed: {e}")
 
-        self._reconcile_tls_config()
+        self._reconcile_cert_transfer()
         self._reconcile_relations()
 
     def _reconcile_relations(self):
@@ -185,38 +176,17 @@ class SlothOperatorCharm(ops.CharmBase):
         except Exception as e:
             logger.error(f"Failed to update alert rules: {e}")
 
-    def _reconcile_tls_config(self) -> None:
+    def _reconcile_cert_transfer(self) -> None:
         """Update the TLS certificates for the charm container."""
         cacert_path = Path(CA_CERT_PATH)
-        if tls_config := self._tls_config:
-            cacert_path.parent.mkdir(parents=True, exist_ok=True)
-            cacert_path.write_text(tls_config.certificate.ca.raw)
+        if certs := self.certificate_transfer.get_all_certificates():
+            # TODO: Also remove the certificates that are no longer in relation data
+            for index, cert in enumerate(certs):
+                cacert_path.parent.mkdir(parents=True, exist_ok=True)
+                cert_file = cacert_path.parent / f"certificate_transfer-{index}.cert"
+                cert_file.write_text(cert)
         else:
             cacert_path.unlink(missing_ok=True)
-
-    # TLS CONFIG
-    @property
-    def _tls_config(self) -> Optional["TLSConfig"]:
-        if not self.model.relations.get(CERTIFICATES_RELATION_NAME):
-            return None
-        cr = self._get_certificate_request_attributes()
-        certificate, key = self.certificates.get_assigned_certificate(certificate_request=cr)
-
-        if not (key and certificate):
-            return None
-        return TLSConfig(cr, key=key, certificate=certificate)
-
-    @property
-    def _tls_ready(self) -> bool:
-        """Return True if tls is enabled and the necessary data is available."""
-        return bool(self._tls_config)
-
-    def _get_certificate_request_attributes(self) -> CertificateRequestAttributes:
-        sans_dns: FrozenSet[str] = frozenset([self._fqdn])
-        return CertificateRequestAttributes(
-            common_name=self.app.name,
-            sans_dns=sans_dns,
-        )
 
     @property
     def _metrics_scrape_jobs(self) -> List[Dict]:

@@ -7,8 +7,6 @@ from unittest.mock import MagicMock, patch
 import ops
 import pytest
 from coordinated_workers.nginx import NginxConfig
-from ops import testing
-
 from nginx import (
     CA_CERT_PATH,
     CERT_PATH,
@@ -16,6 +14,7 @@ from nginx import (
     Address,
     Nginx,
 )
+from ops import testing
 
 logger = logging.getLogger(__name__)
 sample_dns_ip = "198.18.0.0"
