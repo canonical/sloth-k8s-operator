@@ -152,7 +152,7 @@ LIBAPI = 0
 
 # Increment this PATCH version before using `charmcraft publish-lib` or reset
 # to 0 if you are raising the major API version
-LIBPATCH = 4
+LIBPATCH = 5
 
 DEFAULT_RELATION_NAME = "slos"
 
@@ -285,7 +285,7 @@ class SLOProvider(ops.Object):
             juju_application, juju_model, etc. are added to metric selectors.
     """
 
-    on = SLOProviderEvents()
+    on = SLOProviderEvents()  # type: ignore[assignment]
 
     def __init__(
         self,
@@ -422,7 +422,7 @@ class SLORequirer(ops.Object):
         relation_name: Name of the relation (default: "slos").
     """
 
-    on = SLORequirerEvents()
+    on = SLORequirerEvents()  # type: ignore[assignment]
 
     def __init__(
         self,
