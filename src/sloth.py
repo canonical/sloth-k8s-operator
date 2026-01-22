@@ -10,9 +10,10 @@ from pathlib import Path
 
 import ops.pebble
 import yaml
-from nginx import CA_CERT_PATH
 from ops import Container
 from ops.pebble import Layer
+
+CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
 
 if typing.TYPE_CHECKING:  # pragma: nocover
     from models import TLSConfig

@@ -12,10 +12,10 @@ from ops.testing import CharmEvents, Relation, State
 
 
 @pytest.fixture
-def base_state(sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers):
+def base_state(sloth_container, sloth_peers):
     """Return base state with all containers ready."""
     return State(
-        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container],
+        containers=[sloth_container],
         relations=[sloth_peers],
     )
 
@@ -29,10 +29,10 @@ def assert_healthy(state: State):
     assert state.workload_version == "0.11.0"
 
 
-@pytest.fixture(params=(0, 1, 2))
-def any_container(sloth_container, nginx_container, nginx_prometheus_exporter_container, request):
+@pytest.fixture(params=(0,))
+def any_container(sloth_container, request):
     """Parametrized fixture for testing any individual container."""
-    return (sloth_container, nginx_container, nginx_prometheus_exporter_container)[request.param]
+    return (sloth_container,)[request.param]
 
 
 def test_healthy_container_events(context, any_container, base_state):
@@ -57,12 +57,12 @@ def test_healthy_lifecycle_events(context, event, base_state):
 
 
 def test_config_changed_container_not_ready(
-    context, sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers
+    context, sloth_container, sloth_peers
 ):
     """Test config-changed when containers are not ready."""
     sloth_container_not_ready = replace(sloth_container, can_connect=False)
     state = State(
-        containers=[sloth_container_not_ready, nginx_container, nginx_prometheus_exporter_container],
+        containers=[sloth_container_not_ready],
         relations=[sloth_peers],
     )
 
@@ -72,12 +72,12 @@ def test_config_changed_container_not_ready(
 
 
 def test_install_container_not_ready(
-    context, sloth_container, nginx_container, nginx_prometheus_exporter_container
+    context, sloth_container
 ):
     """Test install hook when containers are not ready."""
     sloth_container_not_ready = replace(sloth_container, can_connect=False)
     state = State(
-        containers=[sloth_container_not_ready, nginx_container, nginx_prometheus_exporter_container]
+        containers=[sloth_container_not_ready]
     )
 
     # Install should not fail even if containers aren't ready
@@ -236,11 +236,9 @@ def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
     # Containers not connected yet (realistic during install)
     from ops.testing import Container
     sloth_not_ready = Container("sloth", can_connect=False)
-    nginx_not_ready = Container("nginx", can_connect=False)
-    exporter_not_ready = Container("nginx-prometheus-exporter", can_connect=False)
 
     state = State(
-        containers=[sloth_not_ready, nginx_not_ready, exporter_not_ready],
+        containers=[sloth_not_ready],
         relations=[sloth_peers],
     )
 
@@ -251,13 +249,13 @@ def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
 
 
 def test_charm_recovers_from_waiting_state(
-    context, sloth_container, nginx_container, nginx_prometheus_exporter_container, sloth_peers
+    context, sloth_container, sloth_peers
 ):
     """Test that charm can recover from waiting state."""
     # Start with containers not ready
     sloth_not_ready = replace(sloth_container, can_connect=False)
     state = State(
-        containers=[sloth_not_ready, nginx_container, nginx_prometheus_exporter_container],
+        containers=[sloth_not_ready],
         relations=[sloth_peers],
     )
 
@@ -266,17 +264,17 @@ def test_charm_recovers_from_waiting_state(
 
     # Now simulate pebble-ready (container becomes ready)
     state_ready = replace(state_out,
-        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container]
+        containers=[sloth_container]
     )
     state_final = context.run(context.on.pebble_ready(sloth_container), state_ready)
     assert_healthy(state_final)
 
 
-def test_peer_relation_required(context, sloth_container, nginx_container, nginx_prometheus_exporter_container):
+def test_peer_relation_required(context, sloth_container):
     """Test behavior without peer relation."""
     # Note: Peer relations are typically always present, but test defensive behavior
     state = State(
-        containers=[sloth_container, nginx_container, nginx_prometheus_exporter_container],
+        containers=[sloth_container],
         relations=[],
     )
 

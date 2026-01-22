@@ -3,14 +3,10 @@
 
 import logging
 import os
-import sys
 from pathlib import Path
 
 from pytest import fixture
 from pytest_jubilant import get_resources, pack
-
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 logger = logging.getLogger("conftest")
 
