@@ -79,7 +79,6 @@ class SlothOperatorCharm(ops.CharmBase):
         self.sloth = Sloth(
             container=self.unit.get_container(Sloth.container_name),
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
-            tls_config=None,  # Will be updated during reconcile
             additional_slos=[],  # Will be updated during reconcile
         )
 
@@ -115,10 +114,6 @@ class SlothOperatorCharm(ops.CharmBase):
     # RECONCILERS
     def reconcile(self):
         """Unconditional logic to run regardless of the event we are processing."""
-        # Update TLS config on workloads before reconciling
-        tls_config = self._tls_config
-        self.sloth._tls_config = tls_config
-
         # Update SLOs from relations
         self.sloth._additional_slos = self.slo_requirer.get_slos()
 
@@ -127,7 +122,7 @@ class SlothOperatorCharm(ops.CharmBase):
         ):
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=tls_config.certificate.ca.raw if tls_config else None,
+                ca=None,  # TLS not implemented for Sloth
             )
 
         # Reconcile each workload independently - failures in one shouldn't block others

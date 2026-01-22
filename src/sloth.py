@@ -13,11 +13,6 @@ import yaml
 from ops import Container
 from ops.pebble import Layer
 
-CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
-
-if typing.TYPE_CHECKING:  # pragma: nocover
-    from models import TLSConfig
-
 logger = logging.getLogger(__name__)
 
 VERSION_PATTERN = re.compile(r'([0-9]+[.][0-9]+[.][0-9]+[-0-9a-f]*)')
@@ -42,18 +37,15 @@ class Sloth:
         self,
         container: Container,
         slo_period: str = "30d",
-        tls_config: typing.Optional["TLSConfig"] = None,
         additional_slos: typing.Optional[typing.List[typing.Dict]] = None,
     ):
         self._container = container
         self._slo_period = slo_period
-        self._tls_config = tls_config
         self._additional_slos = additional_slos or []
 
     def reconcile(self):
         """Unconditional control logic."""
         if self._container.can_connect():
-            self._reconcile_tls_config()
             self._reconcile_slo_specs()
             # Note: sloth is not a long-running service, so we don't need to manage it via Pebble
             # It's a generator tool that creates rules and exits
@@ -210,19 +202,6 @@ class Sloth:
             logger.error(f"Failed to list rules directory: {e}")
 
         return all_rules
-
-    def _reconcile_tls_config(self):
-        cert_path = CA_CERT_PATH
-        if cert := (self._tls_config.certificate.ca.raw if self._tls_config else None):
-            current = (
-                self._container.pull(cert_path).read()
-                if self._container.exists(cert_path)
-                else ""
-            )
-            if current != cert:
-                self._container.push(cert_path, cert, make_dirs=True)
-        else:
-            self._container.remove_path(cert_path, recursive=True)
 
     def _reconcile_sloth_service(self):
         layer = self._pebble_layer()

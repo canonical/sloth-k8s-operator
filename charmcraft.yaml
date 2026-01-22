@@ -41,12 +41,23 @@ resources:
     upstream-source: ghcr.io/slok/sloth:v0.11.0  # TODO: Make this a rock
 
 requires:
+  catalogue:
+    interface: catalogue
+    optional: true
+    description: |
+      Enables registration with the Catalogue for service discovery.
   charm-tracing:
     optional: true
     description: |
       Enables sending charm traces to a distributed tracing backend such as Tempo.
     limit: 1
     interface: tracing
+  ingress:
+    interface: ingress
+    optional: true
+    limit: 1
+    description: |
+      Enables ingress for external access to the Sloth UI.
   receive-ca-cert:
     interface: certificate_transfer
     optional: true
