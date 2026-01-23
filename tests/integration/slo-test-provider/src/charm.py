@@ -6,14 +6,7 @@
 
 import logging
 
-# Import from the lib directory
-import sys
-from pathlib import Path
-
 import ops
-
-sys.path.append(str(Path(__file__).parent.parent.parent.parent / "lib"))
-
 from charms.sloth_k8s.v0.slo import SLOProvider
 
 logger = logging.getLogger(__name__)

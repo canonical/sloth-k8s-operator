@@ -5,10 +5,10 @@
 """Integration test for Sloth charm Grafana dashboard integration."""
 
 import json
+import time
 
 import jubilant
 import pytest
-import time
 from jubilant import Juju
 
 from tests.integration.helpers import SLOTH
@@ -59,7 +59,7 @@ def test_sloth_dashboard_in_grafana(juju: Juju):
 
     # The password is in the results dictionary
     password = result.results.get("admin-password")
-    
+
     assert password, f"Could not find admin password in results: {result.results}"
 
     # Query Grafana API for dashboards
@@ -98,7 +98,7 @@ def test_sloth_dashboard_content(juju: Juju):
     """Test that the Sloth SLO dashboard has valid content."""
     # Get Grafana admin password
     result = juju.run(f"{GRAFANA}/0", "get-admin-password")
-    
+
     # The password is in the results dictionary
     password = result.results.get("admin-password")
     assert password, f"Could not find admin password in results: {result.results}"
@@ -143,12 +143,11 @@ def test_sloth_dashboard_content(juju: Juju):
 
 def test_sloth_generates_slo_rules(juju: Juju):
     """Test that Sloth generates SLO rules that appear in Prometheus."""
-    
     # Wait for rules to propagate to Prometheus (with retry logic)
     # Rules need time to be: generated -> written to file -> sent via relation -> loaded by Prometheus
     max_attempts = 30  # 30 attempts * 5s = 150s max wait
     sloth_groups = []
-    
+
     for attempt in range(max_attempts):
         # Query Prometheus for Sloth-generated rules
         cmd = 'curl -s http://localhost:9090/api/v1/rules'
@@ -163,10 +162,10 @@ def test_sloth_generates_slo_rules(juju: Juju):
             g for g in groups
             if "sloth" in g["name"].lower() and "slo" in g["name"].lower()
         ]
-        
+
         if len(sloth_groups) >= 3:
             break  # Found the rules!
-        
+
         if attempt < max_attempts - 1:
             time.sleep(5)  # Wait 5 seconds before retrying
 
