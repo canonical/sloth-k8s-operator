@@ -160,11 +160,15 @@ class Sloth:
             )
             stdout, stderr = process.wait_output()
 
+            # Log stderr if present (sloth may have warnings/errors)
+            if stderr:
+                logger.warning(f"sloth generate stderr for {slo_filename}: {stderr}")
+
             # Save generated rules
             self._container.push(output_path, stdout, make_dirs=True)
             logger.info(f"Generated Prometheus rules for {slo_filename}")
         except ops.pebble.ExecError as e:
-            logger.error(f"Failed to generate rules from {slo_path}: {e}")
+            logger.error(f"Failed to generate rules from {slo_path}: {e.stderr if hasattr(e, 'stderr') else e}")
         except Exception as e:
             logger.error(f"Unexpected error generating rules: {e}")
 

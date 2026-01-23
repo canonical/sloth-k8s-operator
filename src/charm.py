@@ -150,7 +150,8 @@ class SlothOperatorCharm(ops.CharmBase):
             alert_rules = self.sloth.get_alert_rules()
             if alert_rules and alert_rules.get("groups"):
                 # Write alert rules to file for MetricsEndpointProvider to pick up
-                alert_rules_dir = Path("src/prometheus_alert_rules")
+                # Use charm_dir to ensure we write to the correct location
+                alert_rules_dir = Path(self.charm_dir) / "src" / "prometheus_alert_rules"
                 alert_rules_file = alert_rules_dir / "sloth_slo_rules.yaml"
 
                 # Ensure directory exists
@@ -158,7 +159,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
                 # Write the rules as YAML
                 alert_rules_file.write_text(yaml.dump(alert_rules))
-                logger.info(f"Updated alert rules with {len(alert_rules['groups'])} groups")
+                logger.info(f"Updated alert rules with {len(alert_rules['groups'])} groups to {alert_rules_file}")
 
                 # Trigger the metrics endpoint provider to re-read the rules
                 self.metrics_endpoint_provider.set_scrape_job_spec()
