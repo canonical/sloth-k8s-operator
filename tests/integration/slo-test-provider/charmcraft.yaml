@@ -18,6 +18,10 @@ bases:
     - name: "ubuntu"
       channel: "22.04"
 
+parts:
+  charm:
+    plugin: charm
+
 containers:
   test-app:
     resource: test-app-image
