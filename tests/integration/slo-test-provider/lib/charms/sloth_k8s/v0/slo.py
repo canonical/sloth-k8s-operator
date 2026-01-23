@@ -145,7 +145,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # The unique Charmhub library identifier, never change it
-LIBID = "placeholder"
+LIBID = "9f85186f51ba49439d318574343aa37d"
 
 # Increment this major API version when introducing breaking changes
 LIBAPI = 0
