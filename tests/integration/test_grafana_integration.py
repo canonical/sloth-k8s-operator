@@ -56,26 +56,14 @@ def test_sloth_dashboard_in_grafana(juju: Juju):
     # Get Grafana admin password using juju run action
     result = juju.run(f"{GRAFANA}/0", "get-admin-password")
 
-    # Parse the output - it should be in the result
-    output = result.stdout
-    password = None
-    for line in output.split("\n"):
-        if "admin-password:" in line:
-            password = line.split("admin-password:")[1].strip()
-            break
-
-    if not password:
-        # Try parsing as results from action
-        import re
-        match = re.search(r'admin-password:\s*(\S+)', output)
-        if match:
-            password = match.group(1)
-
-    assert password, f"Could not find admin password in output: {output}"
+    # The password is in the results dictionary
+    password = result.results.get("admin-password")
+    
+    assert password, f"Could not find admin password in results: {result.results}"
 
     # Query Grafana API for dashboards
     cmd = f'curl -s http://admin:{password}@localhost:3000/api/search?type=dash-db'
-    result = juju.run(f"{GRAFANA}/0", cmd)
+    result = juju.exec(cmd, unit=f"{GRAFANA}/0")
 
     dashboards = json.loads(result.stdout)
 
@@ -109,24 +97,14 @@ def test_sloth_dashboard_content(juju: Juju):
     """Test that the Sloth SLO dashboard has valid content."""
     # Get Grafana admin password
     result = juju.run(f"{GRAFANA}/0", "get-admin-password")
-    output = result.stdout
-    password = None
-    for line in output.split("\n"):
-        if "admin-password:" in line:
-            password = line.split("admin-password:")[1].strip()
-            break
-
-    if not password:
-        import re
-        match = re.search(r'admin-password:\s*(\S+)', output)
-        if match:
-            password = match.group(1)
-
-    assert password, "Could not find admin password"
+    
+    # The password is in the results dictionary
+    password = result.results.get("admin-password")
+    assert password, f"Could not find admin password in results: {result.results}"
 
     # Get list of dashboards to find UID
     cmd = f'curl -s http://admin:{password}@localhost:3000/api/search?type=dash-db'
-    result = juju.run(f"{GRAFANA}/0", cmd)
+    result = juju.exec(cmd, unit=f"{GRAFANA}/0")
     dashboards = json.loads(result.stdout)
 
     sloth_dashboard = next(
@@ -138,7 +116,7 @@ def test_sloth_dashboard_content(juju: Juju):
     # Fetch full dashboard JSON
     uid = sloth_dashboard["uid"]
     cmd = f'curl -s http://admin:{password}@localhost:3000/api/dashboards/uid/{uid}'
-    result = juju.run(f"{GRAFANA}/0", cmd)
+    result = juju.exec(cmd, unit=f"{GRAFANA}/0")
     dashboard_data = json.loads(result.stdout)
 
     assert "dashboard" in dashboard_data, "Response should contain dashboard data"
@@ -166,7 +144,7 @@ def test_sloth_generates_slo_rules(juju: Juju):
     """Test that Sloth generates SLO rules that appear in Prometheus."""
     # Query Prometheus for Sloth-generated rules
     cmd = 'curl -s http://localhost:9090/api/v1/rules'
-    result = juju.run(f"{PROMETHEUS}/0", cmd)
+    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
     rules_data = json.loads(result.stdout)
 
     assert "data" in rules_data, "Prometheus should return rules data"
