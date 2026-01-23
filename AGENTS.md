@@ -60,6 +60,11 @@ sloth-k8s-operator/
   - Testing should focus on the *generated rules in Prometheus*, not sloth process status
 - Port: 8080 (proxied via nginx on 7994) - for UI access only
 - Version extraction via regex pattern
+- **File Paths**: Uses absolute paths for SLO specs and generated rules
+  - SLO specs: `/etc/sloth/slos/<filename>.yaml` (input)
+  - Generated rules: `/etc/sloth/rules/<filename>.yaml` (output)
+  - These are consolidated and provided via `get_alert_rules()` method
+- **Error Handling**: Logs stderr from `sloth generate` as warnings, full ExecError details on failure
 
 **Important Patterns**:
 - All workload classes have `reconcile()` methods that check `can_connect()` before operations
@@ -174,6 +179,19 @@ def test_setup(juju: Juju, sloth_charm, sloth_resources):
 - Use `successes=1` for reliability (not 3+)
 - Use `delay=10` to give hooks time between checks
 
+**CRITICAL: Juju API Usage in Integration Tests**:
+- Use `juju.run(unit, action_name)` for **Juju actions** (returns ActionResult with `.results` dict)
+  ```python
+  result = juju.run(f"{GRAFANA}/0", "get-admin-password")
+  password = result.results.get("admin-password")  # Access via .results dict
+  ```
+- Use `juju.exec(command, unit=unit)` for **arbitrary shell commands** (returns ExecResult with `.stdout`)
+  ```python
+  result = juju.exec("curl -s http://localhost:9090/api/v1/rules", unit=f"{PROMETHEUS}/0")
+  data = json.loads(result.stdout)  # Access via .stdout
+  ```
+- **DO NOT** use `juju.run(unit, shell_command)` - this is incorrect API usage
+
 ### 5. Building the Charm
 
 ```bash
@@ -212,6 +230,14 @@ rm -rf ~/.local/share/charmcraft/
 ### Issue: Integration test timeout
 **Cause**: Waiting for status with `successes=3` while hooks keep running
 **Solution**: Use `successes=1` and longer `delay` (10s+)
+
+### Issue: Integration test accessing Juju action results
+**Cause**: Using wrong attribute to access action output
+**Solution**: Use `result.results.get(key)` for actions, `result.stdout` for exec commands
+
+### Issue: Rules not appearing in Prometheus after SLO changes
+**Cause**: Rules need time to: generate → write to file → send via relation → reload in Prometheus  
+**Solution**: Add retry logic with delays (10-30s between checks) when verifying Prometheus rules
 
 ### Issue: Unit test failures after code change
 **Check**:
@@ -408,7 +434,7 @@ juju models | grep test- | awk '{print $1}' | xargs -I {} juju destroy-model {} 
 - **Integration tests**: ~80-120 seconds per test
 - **Dependency updates**: ~20-30 seconds
 
-## Architecture Decisions
+### Architecture Decisions
 
 ### Why try/except in __init__?
 During install hook, containers may not be ready. The try/except allows charm initialization to complete, with reconciliation happening on subsequent hooks (pebble-ready, config-changed).
@@ -425,6 +451,13 @@ Sloth is simpler than Parca - it doesn't need:
 - Scraping configs (generates rules, doesn't scrape)
 - gRPC (HTTP only)
 - Complex persistence options
+
+### Why absolute paths for SLO files?
+Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
+- Consistent file locations across container restarts
+- Easy verification in tests and debugging
+- Clear separation between input specs and generated rules
+- No ambiguity when passing paths to `sloth generate` CLI
 
 ## Resources
 
@@ -452,6 +485,9 @@ Sloth is simpler than Parca - it doesn't need:
 - ❌ Set integration test timeout <300s
 - ❌ Manually edit `uv.lock`
 - ❌ Use `successes=3+` in integration tests (causes timeouts)
+- ❌ Use `juju.run(unit, shell_command)` - use `juju.exec(command, unit=unit)` instead
+- ❌ Access action results via `.stdout` - use `.results.get(key)` instead
+- ❌ Expect Sloth rules to appear instantly in Prometheus - add retry logic with delays
 
 **When Stuck**:
 1. Check `juju debug-log --replay`
@@ -461,7 +497,9 @@ Sloth is simpler than Parca - it doesn't need:
 
 ## Current Work Status - SLO Provider/Requirer Library
 
-### ✅ COMPLETED - All Tasks Finished (2026-01-08)
+### ✅ COMPLETED - All Tasks Finished (2026-01-23)
+
+#### Phase 1: SLO Library Implementation (2026-01-08)
 
 1. **SLO Charm Library** (`lib/charms/sloth_k8s/v0/slo.py`)
    - ✅ Created SLOProvider class for charms to provide SLO specs
@@ -488,30 +526,33 @@ Sloth is simpler than Parca - it doesn't need:
    - ✅ Added `slos` relation (requires side, interface: slo)
    - ✅ Marked as optional to maintain backward compatibility
 
-5. **Unit Tests - ALL PASSING**
-   - ✅ Library tests: 27 tests covering SLOSpec, SLOProvider, SLORequirer
-   - ✅ Charm tests: 20 tests for sloth-specific behavior
-   - ✅ Workload tests: 77 tests for sloth, nginx, nginx-exporter
-   - ✅ **Total: 124 tests passing**
-   - ✅ **Code coverage: 76%** (exceeds 75% target)
+#### Phase 2: Test Fixes and Refinements (2026-01-23)
 
-6. **Integration Tests**
-   - ✅ All 12 integration tests passing
-   - ✅ Basic deployment verified
-   - ✅ COS (Grafana + Prometheus) integration tested
-   - ✅ Tests run successfully on microk8s
+5. **Integration Test Fixes** (commits: `932ee70`, `bfc9c07`, `f3b2dc8`)
+   - ✅ Fixed `juju.run()` vs `juju.exec()` API usage patterns
+   - ✅ Fixed action result access (`.results.get()` instead of parsing stdout)
+   - ✅ Added retry logic for Prometheus rule verification (rules take time to propagate)
+   - ✅ Fixed slo-test-provider charm build and metadata
+   - ✅ Fixed absolute path usage for SLO files (prevents file not found errors)
+   - ✅ Improved error logging (capture stderr from `sloth generate`)
 
-7. **Code Quality**
-   - ✅ All linting errors fixed (0 errors)
-   - ✅ Code formatted with ruff
-   - ✅ `tox -e lint` passes cleanly
+6. **Code Quality** (commit: `c2d73fb`)
+   - ✅ Removed unnecessary `lib/charms/sloth_k8s/v0/__init__.py`
+   - ✅ Added type: ignore comments for SLOProviderEvents/SLORequirerEvents
+   - ✅ Bumped LIBPATCH to 5 for library updates
+
+7. **TLS Removal** (commit: `038c0ef`)
+   - ✅ Removed TLS-related code (Sloth has no external endpoints)
+   - ✅ Removed models.py, _tls_config property, _reconcile_tls_config method
+   - ✅ Simplified Sloth constructor (no tls_config parameter)
+   - ✅ Added missing `catalogue` and `ingress` relations to metadata
 
 ### 📊 Final Metrics
 
-- **Total Unit Tests**: 124 passing
+- **Total Unit Tests**: 124 passing (no change)
 - **Code Coverage**: 76% (target: >75%)
 - **Lint Errors**: 0
-- **Integration Tests**: 12/12 passing
+- **Integration Tests**: 12/12 passing (all fixed!)
 - **Build Status**: Clean
 
 ### 🎯 Next Steps for SLO Provider Implementation
