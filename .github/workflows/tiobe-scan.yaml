@@ -8,5 +8,9 @@ on:
 jobs:
     tics:
         name: TiCs
-        uses: canonical/observability/.github/workflows/charm-tiobe-scan.yaml@f1858b296d868435725d617af6f42af7350ba061 # v1
+        uses: canonical/observability/.github/workflows/charm-tiobe-scan.yaml@v1
         secrets: inherit
+        with:
+            coverage-folder: .cover
+            tiobe-project-name: sloth-k8s-operator
+
