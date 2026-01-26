@@ -559,14 +559,22 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 
 To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
 
-1. **Add the SLO library dependency**:
-   ```bash
-   charmcraft fetch-lib charms.sloth_k8s.v0.slo
+1. **Add the SLO library dependency** to your `pyproject.toml` or `requirements.txt`:
+   ```toml
+   # In pyproject.toml
+   dependencies = [
+       "charmlibs-interfaces-slo @ git+https://github.com/canonical/charmlibs.git@main#subdirectory=interfaces/slo",
+   ]
+   ```
+   
+   Or for requirements.txt:
+   ```
+   charmlibs-interfaces-slo @ git+https://github.com/canonical/charmlibs.git@main#subdirectory=interfaces/slo
    ```
 
 2. **Import and instantiate SLOProvider**:
    ```python
-   from charms.sloth_k8s.v0.slo import SLOProvider
+   from charmlibs.interfaces.slo import SLOProvider
    
    class YourCharm(CharmBase):
        def __init__(self, *args):
@@ -574,35 +582,31 @@ To implement SLO support in a charm that defines its own SLI/SLO expressions, yo
            self.slo_provider = SLOProvider(self)
    ```
 
-3. **Define your SLO specification** following Sloth's format:
+3. **Define your SLO specification** following Sloth's format (as YAML string):
    ```python
-   slo_spec = {
-       "version": "prometheus/v1",
-       "service": "your-service-name",
-       "labels": {"team": "your-team"},
-       "slos": [
-           {
-               "name": "availability",
-               "objective": 99.9,
-               "description": "99.9% availability",
-               "sli": {
-                   "events": {
-                       "error_query": 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))',
-                       "total_query": "sum(rate(http_requests_total[{{.window}}]))",
-                   }
-               },
-               "alerting": {
-                   "name": "YourServiceHighErrorRate",
-                   "labels": {"severity": "page"},
-               },
-           }
-       ],
-   }
+   slo_yaml = """
+   version: prometheus/v1
+   service: your-service-name
+   labels:
+     team: your-team
+   slos:
+     - name: availability
+       objective: 99.9
+       description: "99.9% availability"
+       sli:
+         events:
+           error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+           total_query: 'sum(rate(http_requests_total[{{.window}}]))'
+       alerting:
+         name: YourServiceHighErrorRate
+         labels:
+           severity: page
+   """
    ```
 
 4. **Provide the SLO spec** when appropriate (e.g., on pebble-ready, config-changed):
    ```python
-   self.slo_provider.provide_slo(slo_spec)
+   self.slo_provider.provide_slos(slo_yaml)
    ```
 
 5. **Add metadata** in your charm's `charmcraft.yaml`:

@@ -21,6 +21,8 @@ bases:
 parts:
   charm:
     plugin: charm
+    build-packages:
+      - git
 
 containers:
   test-app:

@@ -7,7 +7,7 @@
 import logging
 
 import ops
-from charms.sloth_k8s.v0.slo import SLOProvider
+from charmlibs.interfaces.slo import SLOProvider
 
 logger = logging.getLogger(__name__)
 
@@ -42,39 +42,30 @@ class SLOTestProviderCharm(ops.CharmBase):
         service_name = self.config.get("slo-service-name", "test-service")
         objective = float(self.config.get("slo-objective", "99.9"))
 
-        slo_spec = {
-            "version": "prometheus/v1",
-            "service": service_name,
-            "labels": {
-                "team": "test-team",
-                "component": "integration-test",
-            },
-            "slos": [
-                {
-                    "name": "requests-availability",
-                    "objective": objective,
-                    "description": f"{objective}% of requests should succeed",
-                    "sli": {
-                        "events": {
-                            "error_query": f'sum(rate(http_requests_total{{service="{service_name}",status=~"5.."}}[{{{{.window}}}}]))',
-                            "total_query": f'sum(rate(http_requests_total{{service="{service_name}"}}[{{{{.window}}}}]))',
-                        }
-                    },
-                    "alerting": {
-                        "name": f"{service_name.replace('-', '').title()}HighErrorRate",
-                        "labels": {
-                            "severity": "critical",
-                        },
-                        "annotations": {
-                            "summary": f"{service_name} is experiencing high error rate",
-                        },
-                    },
-                }
-            ],
-        }
+        # Note: New library expects YAML strings, not dictionaries
+        slo_yaml = f"""version: prometheus/v1
+service: {service_name}
+labels:
+  team: test-team
+  component: integration-test
+slos:
+  - name: requests-availability
+    objective: {objective}
+    description: "{objective}% of requests should succeed"
+    sli:
+      events:
+        error_query: 'sum(rate(http_requests_total{{service="{service_name}",status=~"5.."}}[{{{{.window}}}}]))'
+        total_query: 'sum(rate(http_requests_total{{service="{service_name}"}}[{{{{.window}}}}]))'
+    alerting:
+      name: {service_name.replace('-', '').title()}HighErrorRate
+      labels:
+        severity: critical
+      annotations:
+        summary: "{service_name} is experiencing high error rate"
+"""
 
         try:
-            self.slo_provider.provide_slo(slo_spec)
+            self.slo_provider.provide_slos(slo_yaml)
             logger.info(f"Provided SLO for service '{service_name}' with {objective}% objective")
         except Exception as e:
             logger.error(f"Failed to provide SLO: {e}")
