@@ -7,6 +7,8 @@ description: |
   specifications to the Sloth charm.
 
 type: "charm"
+assumes:
+  - k8s-api
 
 bases:
   - build-on:
@@ -15,6 +17,20 @@ bases:
     run-on:
     - name: "ubuntu"
       channel: "22.04"
+
+parts:
+  charm:
+    plugin: charm
+
+containers:
+  test-app:
+    resource: test-app-image
+
+resources:
+  test-app-image:
+    type: oci-image
+    description: Test application image
+    upstream-source: ubuntu:22.04
 
 provides:
   slos:

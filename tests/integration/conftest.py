@@ -32,7 +32,8 @@ def slo_provider_charm():
 
     if charm_path.exists():
         logger.info(f"using existing provider charm: {charm_path}")
-        return str(charm_path)
+        # Juju requires local charm paths to start with ./
+        return f"./{charm_path}"
 
     logger.info(f"packing provider charm from {provider_dir}")
     return pack(str(provider_dir))

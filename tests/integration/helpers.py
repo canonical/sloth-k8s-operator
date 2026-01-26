@@ -5,7 +5,10 @@ from subprocess import getoutput, getstatusoutput
 from typing import Tuple
 
 from jubilant import Juju
-from nginx import CA_CERT_PATH, Nginx
+
+# Constants from charm source (avoid importing from src/)
+CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
+SLOTH_HTTP_PORT = 7994  # nginx proxy port for sloth
 
 SLOTH = "sloth"
 logger = logging.getLogger("helpers")
@@ -33,7 +36,7 @@ def query_sloth_server(
 ) -> Tuple[int, str]:
     """Curl the sloth server from a juju unit, and return the statuscode."""
     sloth_address = get_unit_fqdn(model_name, SLOTH, 0)
-    url = f"{'https' if tls else 'http'}://{sloth_address}:{Nginx.parca_http_server_port}{url_path}"
+    url = f"{'https' if tls else 'http'}://{sloth_address}:{SLOTH_HTTP_PORT}{url_path}"
     cert_flags = f"--cacert {ca_cert_path}" if tls else ""
     cmd = f"""juju exec --model {model_name} --unit {exec_target_app_name}/0 "curl {cert_flags} {url}" """
     return getstatusoutput(cmd)

@@ -12,10 +12,7 @@ def patch_all(tmp_path):
     ca_tmp_path = tmp_path / "ca.tmp"
     with ExitStack() as stack:
         stack.enter_context(patch("lightkube.core.client.GenericSyncClient"))
-        stack.enter_context(patch("nginx.Nginx._are_certificates_on_disk", False))
-        stack.enter_context(patch("nginx.CA_CERT_PATH", str(ca_tmp_path)))
         stack.enter_context(patch("charm.CA_CERT_PATH", str(ca_tmp_path)))
-        stack.enter_context(patch("sloth.CA_CERT_PATH", str(ca_tmp_path)))
         stack.enter_context(patch("sloth.Sloth.version", "0.11.0"))
         yield
 
@@ -31,24 +28,8 @@ def sloth_peers():
 
 
 @pytest.fixture(scope="function")
-def nginx_container():
-    return Container(
-        "nginx",
-        can_connect=True,
-    )
-
-
-@pytest.fixture(scope="function")
 def sloth_container():
     return Container(
         "sloth",
-        can_connect=True,
-    )
-
-
-@pytest.fixture(scope="function")
-def nginx_prometheus_exporter_container():
-    return Container(
-        "nginx-prometheus-exporter",
         can_connect=True,
     )
