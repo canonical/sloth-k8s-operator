@@ -311,6 +311,28 @@ install → config-changed → start → pebble-ready → active
 - `requires`: What this charm needs (ingress, certificates)
 - `peers`: Coordination between units (sloth-peers)
 
+### SLO Sources
+Sloth collects SLO specifications from multiple sources:
+
+1. **Hardcoded SLOs**: Built-in Prometheus availability SLO (always present)
+2. **Relation-based SLOs**: Received from related charms via the `slos` relation
+3. **Config-based SLOs**: Set directly via the `slos` charm config option
+
+**Merging Behavior**:
+- Relation SLOs are collected first
+- Config SLOs are appended (not merged/replaced)
+- All SLOs are processed independently
+- Each SLO generates its own Prometheus rules
+- If duplicate service names exist, both will generate rules (last one may override in Prometheus)
+
+**Implementation** (src/charm.py):
+```python
+def reconcile(self):
+    relation_slos = self.slo_requirer.get_slos()
+    config_slos = self._parse_config_slos()
+    self.sloth._additional_slos = relation_slos + config_slos
+```
+
 ### Status
 - `waiting`: Not ready yet
 - `active`: Fully operational
@@ -334,7 +356,32 @@ containers:
 ### Sloth Configuration
 - **Port**: 8080 (internal), 7994 (nginx proxy)
 - **Command**: `sloth serve --listen=:8080 --default-slo-period=30d`
-- **Config**: `slo-period` (charm config option)
+- **Config Options**:
+  - `slo-period`: Time period for SLO calculations (default: "30d")
+  - `slos`: Direct SLO specifications in YAML format (default: "")
+    - Allows setting SLOs directly via config without requiring relations
+    - Config SLOs are appended to relation-based SLOs (no overwriting)
+    - Supports multi-document YAML (multiple services separated by `---`)
+    - Validated using SLOSpec Pydantic model
+    - Example:
+      ```yaml
+      version: prometheus/v1
+      service: my-service
+      labels:
+        team: platform
+      slos:
+        - name: requests-availability
+          objective: 99.9
+          description: "99.9% availability"
+          sli:
+            events:
+              error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+              total_query: "sum(rate(http_requests_total[{{.window}}]))"
+          alerting:
+            name: MyServiceHighErrorRate
+            labels:
+              severity: page
+      ```
 
 ## Debugging Tips
 
