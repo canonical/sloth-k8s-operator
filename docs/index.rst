@@ -1,12 +1,7 @@
-Documentation starter pack
-==========================
+Charmed Sloth K8s documentation.
+================================
 
-The documentation starter pack helps you to quickly set up, build, and publish
-documentation with Sphinx.
-
-It contains common styling and configuration through the `Canonical Sphinx`_ extension,
-supports both |RST| and Markdown, and includes automatic documentation checks.
-
+Sloth allows all your charmed applications to define Service Level Indicators and Service Level Objectives for them. These will be forwarded to Sloth which will transform them into recording rules for Prometheus. It also offers a Grafana dashboard to view the state of all SLOs.
 
 In this documentation
 ---------------------
@@ -17,7 +12,7 @@ In this documentation
         :link: /tutorial/index
         :link-type: doc
 
-        **Get started** - use Sphinx and Read the Docs to host and test your documentation.
+        **Get started** - use `sloth-k8s` to generate SLOs for your core deployment metrics.
 
     .. grid-item-card:: How-to guides
         :link: /how-to/index
@@ -31,13 +26,13 @@ In this documentation
         :link: /reference/index
         :link-type: doc
 
-        **Technical information** - review the automatic checks and Sphinx capabilities.
+        **Technical information** - review `sloth-k8s` capabilities.
 
     .. grid-item-card:: Explanation
         :link: /explanation/index
         :link-type: doc
 
-        **Concepts** - understand the design and architecture of the starter pack.
+        **Concepts** - understand the design and architecture of `sloth-k8s`.
 
 .. toctree::
     :hidden:
