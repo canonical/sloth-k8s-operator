@@ -1,0 +1,4 @@
+.. _Canonical Documentation Style Guide: https://docs.ubuntu.com/styleguide/en
+
+.. SHORTCUTS
+.. |RST| replace:: :abbr:`reST (reStructuredText)`
