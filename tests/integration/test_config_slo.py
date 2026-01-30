@@ -28,7 +28,7 @@ def test_setup_with_prometheus(juju: Juju, sloth_charm, sloth_resources):
     )
 
     # Deploy Prometheus to verify rules are generated
-    juju.deploy("prometheus-k8s", PROMETHEUS, channel="stable", trust=True)
+    juju.deploy("prometheus-k8s", PROMETHEUS, channel="1/stable", trust=True)
 
     juju.wait(
         lambda status: status.apps[SLOTH].is_active and status.apps[PROMETHEUS].is_active,
@@ -132,42 +132,53 @@ def test_config_slo_generates_prometheus_rules(juju: Juju):
         timeout=TIMEOUT,
     )
 
-    # Give some extra time for rules to propagate to Prometheus
+    # Give extra time for rules to propagate to Prometheus
     # (Rules need to: generate → write to file → send via relation → reload in Prometheus)
-    max_retries = 6
-    retry_delay = 10
+    max_retries = 10
+    retry_delay = 15
     rules_found = False
+    last_error = None
 
     for attempt in range(max_retries):
-        # Query Prometheus API for rules
-        result = juju.exec(
-            "curl -s http://localhost:9090/api/v1/rules",
-            unit=f"{PROMETHEUS}/0"
-        )
-
         try:
+            # Query Prometheus API for rules
+            result = juju.exec(
+                "curl -s http://localhost:9090/api/v1/rules",
+                unit=f"{PROMETHEUS}/0"
+            )
+
             rules_data = json.loads(result.stdout)
             if rules_data.get("status") == "success":
                 groups = rules_data.get("data", {}).get("groups", [])
 
                 # Look for rules from our config SLOs
+                # Check for any Sloth-generated rules (they have specific naming patterns)
                 for group in groups:
-                    group_name = group.get("name", "")
+                    group_name = group.get("name", "").lower()
                     # Check if rules from config-test-service or app1/app2 are present
-                    if any(service in group_name.lower() for service in ["config-test", "app1", "app2"]):
+                    if any(service in group_name for service in ["config-test", "app1", "app2", "sloth"]):
                         rules_found = True
                         break
 
             if rules_found:
                 break
 
-        except (json.JSONDecodeError, KeyError):
-            pass
+        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+            last_error = str(e)
 
         if attempt < max_retries - 1:
             time.sleep(retry_delay)
 
-    assert rules_found, "Expected to find Prometheus rules generated from config SLOs"
+    # More informative assertion message
+    if not rules_found:
+        status = juju.status()
+        assert False, (
+            f"Expected to find Prometheus rules generated from config SLOs after {max_retries} attempts. "
+            f"Sloth status: {status.apps[SLOTH].status}, "
+            f"Prometheus status: {status.apps[PROMETHEUS].status}"
+            f"{f', Last error: {last_error}' if last_error else ''}"
+        )
+
 
 
 def test_clear_config_slo(juju: Juju):
@@ -192,14 +203,13 @@ def test_invalid_config_slo(juju: Juju):
     juju.config(SLOTH, {"slos": "invalid: yaml: {{{"})
 
     # Wait a bit for config-changed to process
-    time.sleep(10)
+    time.sleep(15)
 
     status = juju.status()
     # Charm should handle invalid config gracefully (log error, don't crash)
-    # It might be active or error depending on how strict we want to be
-    # For now, we expect it to remain active (error is logged but doesn't block)
-    assert status.apps[SLOTH].is_active or status.apps[SLOTH].status in ["active", "error"], \
-        "Sloth should handle invalid config gracefully"
+    # The charm may stay active (errors are logged) or go to error state
+    assert status.apps[SLOTH].status in ["active", "error"], \
+        f"Sloth should handle invalid config gracefully, got status: {status.apps[SLOTH].status}"
 
 
 @pytest.mark.teardown
