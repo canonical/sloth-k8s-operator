@@ -100,3 +100,27 @@ config:
         The period for SLO calculations (e.g., "30d" for 30 days).
       type: string
       default: "30d"
+    slos:
+      description: |
+        Additional SLO specifications in YAML format. Must follow Sloth's SLO specification format.
+        These SLOs will be appended to any SLOs received via relations.
+        Can contain multiple SLO service definitions separated by '---' (YAML document separator).
+        Example:
+          version: prometheus/v1
+          service: my-service
+          labels:
+            team: my-team
+          slos:
+            - name: requests-availability
+              objective: 99.9
+              description: "99.9% availability"
+              sli:
+                events:
+                  error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+                  total_query: "sum(rate(http_requests_total[{{.window}}]))"
+              alerting:
+                name: MyServiceHighErrorRate
+                labels:
+                  severity: page
+      type: string
+      default: ""

@@ -282,3 +282,135 @@ def test_peer_relation_required(context, sloth_container):
     state_out = context.run(context.on.start(), state)
     # May be waiting or active depending on implementation
     assert state_out.unit_status is not None
+
+
+def test_config_slos_valid_single(context, base_state):
+    """Test config SLOs with a single valid SLO specification."""
+    slo_config = """
+version: prometheus/v1
+service: my-app
+labels:
+  team: platform
+slos:
+  - name: requests-availability
+    objective: 99.9
+    description: "99.9% availability"
+    sli:
+      events:
+        error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+        total_query: "sum(rate(http_requests_total[{{.window}}]))"
+    alerting:
+      name: MyAppHighErrorRate
+      labels:
+        severity: page
+"""
+    state = replace(base_state, config={"slos": slo_config})
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slos_valid_multiple(context, base_state):
+    """Test config SLOs with multiple SLO specifications."""
+    slo_config = """
+version: prometheus/v1
+service: app1
+slos:
+  - name: availability
+    objective: 99.9
+    sli:
+      events:
+        error_query: "errors1"
+        total_query: "requests1"
+---
+version: prometheus/v1
+service: app2
+slos:
+  - name: availability
+    objective: 99.5
+    sli:
+      events:
+        error_query: "errors2"
+        total_query: "requests2"
+"""
+    state = replace(base_state, config={"slos": slo_config})
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slos_invalid_yaml(context, base_state):
+    """Test config SLOs with invalid YAML."""
+    slo_config = "invalid: yaml: {{{"
+    state = replace(base_state, config={"slos": slo_config})
+
+    # Should not crash, just log error
+    state_out = context.run(context.on.config_changed(), state)
+    # Charm should still be active (invalid SLOs are logged and skipped)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slos_invalid_spec(context, base_state):
+    """Test config SLOs with invalid SLO specification (missing required fields)."""
+    slo_config = """
+version: prometheus/v1
+service: my-app
+# Missing 'slos' field
+"""
+    state = replace(base_state, config={"slos": slo_config})
+
+    # Should not crash, just log error
+    state_out = context.run(context.on.config_changed(), state)
+    # Charm should still be active (invalid SLOs are logged and skipped)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slos_empty(context, base_state):
+    """Test config SLOs with empty string."""
+    state = replace(base_state, config={"slos": ""})
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_slos_combined_with_relation(context, base_state):
+    """Test that config SLOs are combined with relation SLOs."""
+    # Add relation SLO
+    relation_slo = {
+        "version": "prometheus/v1",
+        "service": "relation-app",
+        "slos": [
+            {
+                "name": "availability",
+                "objective": 99.9,
+                "sli": {"events": {"error_query": "errors", "total_query": "requests"}},
+            }
+        ],
+    }
+    slo_relation = Relation(
+        "slos",
+        remote_app_name="slo-provider",
+        remote_units_data={0: {"slo_spec": yaml.safe_dump(relation_slo)}},
+    )
+
+    # Add config SLO
+    config_slo = """
+version: prometheus/v1
+service: config-app
+slos:
+  - name: availability
+    objective: 99.5
+    sli:
+      events:
+        error_query: "config_errors"
+        total_query: "config_requests"
+"""
+
+    state = replace(
+        base_state,
+        config={"slos": config_slo},
+        relations=list(base_state.relations) + [slo_relation],
+    )
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
