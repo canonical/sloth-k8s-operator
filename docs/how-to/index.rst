@@ -16,5 +16,4 @@ Basic deployment and operation
     :maxdepth: 1
 
     deploy
-    configure
 
