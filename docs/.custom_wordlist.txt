@@ -76,4 +76,5 @@ retrigger(ing)?
 SLOs
 SLIs
 slos
-
+Hardcoding
+hardcoded
