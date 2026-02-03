@@ -15,5 +15,8 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install uv
+        run: sudo snap install astral-uv --classic
+
       - name: Lint docs
         run: uvx tox -e lint-docs
