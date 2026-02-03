@@ -1,0 +1,19 @@
+name: Lint Docs
+on:
+  pull_request:
+    branches:
+      - main
+      - track/**
+
+jobs:
+  lint-docs:
+    name: Lint Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Lint docs
+        run: uvx tox -e lint-docs
