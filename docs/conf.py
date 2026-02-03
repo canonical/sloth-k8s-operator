@@ -222,7 +222,7 @@ extensions = [
     "sphinx_ubuntu_images",
     "sphinx_youtube_links",
     "sphinxcontrib.cairosvgconverter",
-    "sphinx_last_updated_by_git",
+    # "sphinx_last_updated_by_git",  # Disabled: raises warnings in CI without full git checkout
     "sphinx.ext.intersphinx",
     "sphinx_sitemap",
 ]
