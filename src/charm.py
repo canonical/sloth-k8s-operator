@@ -21,7 +21,7 @@ from charms.certificate_transfer_interface.v1.certificate_transfer import (
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
-from charms.sloth_k8s.v0.slo import SLORequirer
+from charms.sloth_k8s.v0.slo import SLORequirer, SLOSpec
 from charms.tempo_coordinator_k8s.v0.tracing import TracingEndpointRequirer
 
 from sloth import Sloth
@@ -111,11 +111,42 @@ class SlothOperatorCharm(ops.CharmBase):
             return False
         return len(peer_relation.units) > 0
 
+    def _parse_config_slos(self) -> List[Dict]:
+        """Parse and validate SLOs from config.
+
+        Returns:
+            List of validated SLO specifications from config option.
+        """
+        config_slos_str = typing.cast(str, self.config.get("slos", ""))
+        if not config_slos_str or not config_slos_str.strip():
+            return []
+
+        slo_specs = []
+        try:
+            # Support multi-document YAML (multiple services separated by ---)
+            for doc in yaml.safe_load_all(config_slos_str):
+                if doc:  # Skip empty documents
+                    # Validate using SLOSpec model
+                    validated = SLOSpec.model_validate(doc)
+                    slo_specs.append(validated.model_dump())
+                    logger.debug(f"Parsed config SLO for service: {validated.service}")
+        except yaml.YAMLError as e:
+            logger.error(f"Invalid YAML in slos config: {e}")
+        except Exception as e:
+            logger.error(f"Failed to parse slos config: {e}")
+
+        return slo_specs
+
     # RECONCILERS
     def reconcile(self):
         """Unconditional logic to run regardless of the event we are processing."""
-        # Update SLOs from relations
-        self.sloth._additional_slos = self.slo_requirer.get_slos()
+        # Collect SLOs from relations and config
+        relation_slos = self.slo_requirer.get_slos()
+        config_slos = self._parse_config_slos()
+
+        # Combine: relation SLOs first, then config SLOs (config appends to relations)
+        # This ensures relation SLOs take precedence if there are duplicates
+        self.sloth._additional_slos = relation_slos + config_slos
 
         if self.charm_tracing.is_ready() and (
             endpoint := self.charm_tracing.get_endpoint("otlp_http")
