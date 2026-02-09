@@ -14,7 +14,7 @@ import cosl.reconciler
 import ops
 import ops_tracing
 import yaml
-from charmlibs.interfaces.slo import SLORequirer
+from charmlibs.interfaces.sloth import SLORequirer
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferRequires,
@@ -69,7 +69,7 @@ class SlothOperatorCharm(ops.CharmBase):
         )
 
         # SLO provider/requirer for collecting SLO specs from related charms
-        self.slo_requirer = SLORequirer(self, relation_name="slos")
+        self.slo_requirer = SLORequirer(self)
 
         # Workloads
         self.sloth = Sloth(

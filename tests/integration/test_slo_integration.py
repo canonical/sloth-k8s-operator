@@ -54,7 +54,7 @@ def test_sloth_with_slo_provider(juju: Juju, slo_provider_charm):
     )
 
     # Relate the provider to Sloth
-    juju.integrate(TEST_PROVIDER, f"{SLOTH}:slos")
+    juju.integrate(TEST_PROVIDER, f"{SLOTH}:sloth")
 
     juju.wait(
         lambda status: status.apps[SLOTH].is_active,
@@ -79,8 +79,8 @@ def test_sloth_generates_rules_from_provider(juju: Juju):
     assert status.apps[TEST_PROVIDER].is_active, "Test provider should be active"
 
     # Verify the relation exists (relations is a dict of lists)
-    assert "slos" in status.apps[SLOTH].relations, \
-        "Sloth should have slos relation"
+    assert "sloth" in status.apps[SLOTH].relations, \
+        "Sloth should have sloth relation"
 
 
 @pytest.mark.teardown

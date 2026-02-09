@@ -667,3 +667,241 @@ All checks passed!
 3. **MEDIUM**: Update charm unit tests (rewrite for sloth)
 4. **MEDIUM**: Run and verify integration tests
 5. **LOW**: Documentation updates
+
+---
+
+## Manual Verification Guide
+
+This section describes how to manually verify the complete SLO functionality end-to-end.
+
+### Prerequisites
+
+- Juju controller bootstrapped on microk8s or k8s cluster
+- `juju`, `kubectl`, and `charmcraft` installed
+- Built sloth-k8s charm and slo-test-provider charm
+
+### Step 1: Build Charms
+
+```bash
+# Build sloth-k8s charm
+cd /home/ubuntu/Code/sloth-k8s-operator
+charmcraft pack
+
+# Build test SLO provider charm
+cd tests/integration/slo-test-provider
+charmcraft pack
+cd ../../..
+```
+
+Expected result:
+- `sloth-k8s_ubuntu@24.04-amd64.charm` (~11MB)
+- `tests/integration/slo-test-provider/slo-test-provider_ubuntu-22.04-amd64.charm` (~10MB)
+
+### Step 2: Deploy Observability Stack
+
+```bash
+# Create a test model
+juju add-model sloth-manual-test
+
+# Deploy Prometheus
+juju deploy prometheus-k8s prometheus --channel 1/stable --trust
+
+# Deploy Grafana
+juju deploy grafana-k8s grafana --channel 1/stable --trust
+
+# Relate Prometheus and Grafana
+juju integrate grafana:grafana-source prometheus:grafana-source
+
+# Wait for active status
+juju wait-for application prometheus --query='status=="active"' --timeout=10m
+juju wait-for application grafana --query='status=="active"' --timeout=10m
+```
+
+### Step 3: Deploy Sloth
+
+```bash
+# Deploy sloth-k8s
+juju deploy ./sloth-k8s_ubuntu@24.04-amd64.charm sloth --trust \
+  --resource sloth-image=ghcr.io/slok/sloth:v0.11.0
+
+# Relate sloth to observability stack
+juju integrate sloth:metrics-endpoint prometheus:metrics-endpoint
+juju integrate sloth:grafana-dashboard grafana:grafana-dashboard
+
+# Wait for active status
+juju wait-for application sloth --query='status=="active"' --timeout=10m
+```
+
+### Step 4: Deploy SLO Provider
+
+```bash
+# Deploy test provider with custom SLO config
+juju deploy ./tests/integration/slo-test-provider/slo-test-provider_ubuntu-22.04-amd64.charm \
+  slo-test-provider \
+  --resource test-app-image=ubuntu:22.04 \
+  --config slo-service-name="my-test-service" \
+  --config slo-objective="99.5"
+
+# Wait for active status
+juju wait-for application slo-test-provider --query='status=="active"' --timeout=5m
+
+# Relate provider to sloth (using the new 'sloth' relation name)
+juju integrate slo-test-provider:sloth sloth:sloth
+
+# Wait for relation to establish
+sleep 30
+```
+
+### Step 5: Verify SLO Relation
+
+```bash
+# Check relation status
+juju status --relations
+
+# Expected output should show:
+# sloth:sloth <-> slo-test-provider:sloth (interface: slo)
+```
+
+### Step 6: Verify SLO Rules in Sloth Container
+
+```bash
+# Check SLO spec files in sloth container
+juju exec --unit sloth/0 -- ls -la /etc/sloth/slos/
+
+# Should show:
+# - prometheus_sloth_sli_plugin.yaml (built-in SLO for Prometheus availability)
+# - my-test-service.yaml (from slo-test-provider)
+
+# View the generated SLO spec
+juju exec --unit sloth/0 -- cat /etc/sloth/slos/my-test-service.yaml
+
+# Check generated rules
+juju exec --unit sloth/0 -- ls -la /etc/sloth/rules/
+
+# Should show:
+# - prometheus_sloth_sli_plugin.yaml
+# - my-test-service.yaml
+
+# View generated Prometheus rules
+juju exec --unit sloth/0 -- cat /etc/sloth/rules/my-test-service.yaml
+```
+
+Expected rule format:
+```yaml
+groups:
+  - name: sloth-slo-sli-recordings-my-test-service-requests-availability
+    rules:
+      - record: slo:sli_error:ratio_rate5m
+        expr: ...
+```
+
+### Step 7: Verify Rules in Prometheus
+
+```bash
+# Get Prometheus pod name
+PROM_POD=$(kubectl -n sloth-manual-test get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
+
+# Check Prometheus rules API
+kubectl -n sloth-manual-test exec $PROM_POD -- \
+  curl -s http://localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name | contains("my-test-service"))'
+
+# Or use juju exec
+juju exec --unit prometheus/0 -- \
+  curl -s http://localhost:9090/api/v1/rules | grep -A20 "my-test-service"
+```
+
+Expected output: Rules for "my-test-service" should appear in Prometheus.
+
+**Note**: It may take 30-60 seconds for rules to propagate from Sloth → relation → Prometheus → reload. Use retry logic if rules don't appear immediately.
+
+### Step 8: Verify Grafana Dashboard
+
+```bash
+# Get Grafana admin password
+GRAFANA_PASSWORD=$(juju run grafana/0 get-admin-password --format=json | jq -r '.["grafana/0"].results["admin-password"]')
+
+# Port-forward Grafana
+kubectl -n sloth-manual-test port-forward svc/grafana-k8s 3000:3000 &
+
+# Open browser to http://localhost:3000
+# Login: admin / <GRAFANA_PASSWORD>
+# Navigate to Dashboards → Sloth dashboard should be present
+```
+
+### Step 9: Test Dynamic SLO Updates
+
+```bash
+# Change SLO objective
+juju config slo-test-provider slo-objective="99.9"
+
+# Wait for relation to update
+sleep 20
+
+# Verify updated SLO in sloth container
+juju exec --unit sloth/0 -- cat /etc/sloth/slos/my-test-service.yaml | grep objective
+
+# Should show: objective: 99.9
+```
+
+### Step 10: Cleanup
+
+```bash
+# Destroy test model
+juju destroy-model sloth-manual-test --destroy-storage --no-prompt --force
+
+# Or just remove applications
+juju remove-application sloth
+juju remove-application slo-test-provider
+juju remove-application prometheus
+juju remove-application grafana
+```
+
+### Troubleshooting
+
+**Problem**: Rules not appearing in Prometheus
+
+**Solutions**:
+1. Wait longer (up to 60 seconds for propagation)
+2. Check sloth logs: `juju debug-log --replay --include sloth`
+3. Verify relation data: 
+   ```bash
+   juju show-unit slo-test-provider/0 --format=json | jq '.["slo-test-provider/0"]["relation-info"]'
+   ```
+4. Check for errors in Prometheus: `juju debug-log --replay --include prometheus`
+
+**Problem**: Sloth charm goes to error state
+
+**Solutions**:
+1. Check logs: `juju debug-log --replay --include sloth`
+2. Verify container readiness: `juju exec --unit sloth/0 -- pebble services`
+3. Check SLO generation errors: `juju exec --unit sloth/0 -- pebble logs sloth | tail -50`
+
+**Problem**: SLO provider not providing SLOs
+
+**Solutions**:
+1. Check relation status: `juju status --relations`
+2. Verify config: `juju config slo-test-provider`
+3. Check provider logs: `juju debug-log --replay --include slo-test-provider`
+
+### Expected Metrics and Verification
+
+After successful deployment and relation, you should see:
+
+1. **In Sloth Container**:
+   - `/etc/sloth/slos/` contains SLO spec files
+   - `/etc/sloth/rules/` contains generated Prometheus rules
+   - At least 2 SLO files: built-in Prometheus SLO + provider SLOs
+
+2. **In Prometheus**:
+   - Rules groups named `sloth-slo-sli-recordings-<service>-<slo-name>`
+   - Recording rules like `slo:sli_error:ratio_rate5m`
+   - Alert rules like `<ServiceName>HighErrorRate`
+
+3. **In Grafana**:
+   - Sloth dashboard available
+   - Panels showing SLO metrics (if metrics are being generated)
+
+4. **Juju Status**:
+   - All applications in `active` status
+   - Relation `sloth:sloth <-> slo-test-provider:sloth` established
+   - No error messages in unit workload status
