@@ -434,7 +434,7 @@ juju models | grep test- | awk '{print $1}' | xargs -I {} juju destroy-model {} 
 - **Integration tests**: ~80-120 seconds per test
 - **Dependency updates**: ~20-30 seconds
 
-### Architecture Decisions
+## Architecture Decisions
 
 ### Why try/except in __init__?
 During install hook, containers may not be ready. The try/except allows charm initialization to complete, with reconciliation happening on subsequent hooks (pebble-ready, config-changed).
@@ -444,13 +444,6 @@ During install hook, containers may not be ready. The try/except allows charm in
 - Allows certificate management
 - Consistent with Canonical COS patterns
 - Metrics collection via nginx-prometheus-exporter
-
-### Why simplify from Parca?
-Sloth is simpler than Parca - it doesn't need:
-- S3 storage (no profile persistence)
-- Scraping configs (generates rules, doesn't scrape)
-- gRPC (HTTP only)
-- Complex persistence options
 
 ### Why absolute paths for SLO files?
 Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
@@ -495,77 +488,7 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 3. Run `juju status` to see actual state
 4. Verify containers are running: `juju exec --unit sloth/0 -- pebble services`
 
-## Current Work Status - Sloth Provider/Requirer Library
-
-### ✅ COMPLETED - All Tasks Finished (2026-02-12)
-
-#### Phase 1: SLO Library Implementation (2026-01-08)
-
-1. **Sloth Charm Library** (moved to `charmlibs` repository as `charmlibs.interfaces.sloth`)
-   - ✅ Created SlothProvider class for charms to provide SLO specs (renamed from SLOProvider)
-   - ✅ Created SlothRequirer class for Sloth to consume SLO specs (renamed from SLORequirer)
-   - ✅ Implemented Pydantic validation (SLOSpec model)
-   - ✅ Added SLOsChangedEvent for dynamic updates
-   - ✅ Comprehensive documentation in module docstring
-
-2. **Sloth Workload Updates** (`src/sloth.py`)
-   - ✅ Added `additional_slos` parameter to constructor
-   - ✅ Implemented `_reconcile_additional_slos()` method
-   - ✅ Each SLO spec is written to `/etc/sloth/slos/` in container
-   - ✅ Rules generated via `sloth generate` for each SLO
-   - ✅ Rules saved to `/etc/sloth/rules/` in container
-   - ✅ Maintains backward compatibility (hardcoded Prometheus SLO)
-
-3. **Charm Integration** (`src/charm.py`)
-   - ✅ Added SlothRequirer instance (renamed from SLORequirer)
-   - ✅ Observes `slos_changed` event
-   - ✅ Passes collected SLOs to Sloth workload during reconciliation
-   - ✅ New event handler: `_on_slos_changed()`
-
-4. **Charm Metadata** (`charmcraft.yaml`)
-   - ✅ Added `slos` relation (requires side, interface: slo)
-   - ✅ Marked as optional to maintain backward compatibility
-
-#### Phase 2: Test Fixes and Refinements (2026-01-23)
-
-5. **Integration Test Fixes** (commits: `932ee70`, `bfc9c07`, `f3b2dc8`)
-   - ✅ Fixed `juju.run()` vs `juju.exec()` API usage patterns
-   - ✅ Fixed action result access (`.results.get()` instead of parsing stdout)
-   - ✅ Added retry logic for Prometheus rule verification (rules take time to propagate)
-   - ✅ Fixed slo-test-provider charm build and metadata
-   - ✅ Fixed absolute path usage for SLO files (prevents file not found errors)
-   - ✅ Improved error logging (capture stderr from `sloth generate`)
-
-6. **Code Quality** (commit: `c2d73fb`)
-   - ✅ Removed unnecessary `lib/charms/sloth_k8s/v0/__init__.py`
-   - ✅ Added type: ignore comments for SlothProviderEvents/SlothRequirerEvents
-   - ✅ Bumped LIBPATCH to 5 for library updates
-
-#### Phase 3: Migration to charmlibs Repository (2026-02-12)
-
-8. **Library Migration**
-   - ✅ Moved library from `lib/charms/sloth_k8s/v0/slo.py` to `charmlibs` repository
-   - ✅ Renamed classes: `SLOProvider` → `SlothProvider`, `SLORequirer` → `SlothRequirer`
-   - ✅ Updated dependency to `charmlibs-interfaces-sloth @ git+https://github.com/canonical/charmlibs.git@feat/slo#subdirectory=interfaces/sloth`
-   - ✅ Updated charm code to use new class names
-   - ✅ Updated test provider charm to use new class names
-   - ✅ Refreshed lock file with `tox -e lock` to fetch latest library version
-
-7. **TLS Removal** (commit: `038c0ef`)
-   - ✅ Removed TLS-related code (Sloth has no external endpoints)
-   - ✅ Removed models.py, _tls_config property, _reconcile_tls_config method
-   - ✅ Simplified Sloth constructor (no tls_config parameter)
-   - ✅ Added missing `catalogue` and `ingress` relations to metadata
-
-### 📊 Final Metrics
-
-- **Total Unit Tests**: 124 passing (no change)
-- **Code Coverage**: 76% (target: >75%)
-- **Lint Errors**: 0
-- **Integration Tests**: 12/12 passing (all fixed!)
-- **Build Status**: Clean
-
-### 🎯 Next Steps for Sloth Provider Implementation
+## Implementing SLO Support via Sloth Library
 
 To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
 
@@ -631,287 +554,38 @@ To implement SLO support in a charm that defines its own SLI/SLO expressions, yo
    juju relate your-charm:slos sloth:slos
    ```
 
-The SLO library is now ready for use!
+The Sloth library supports dynamic SLO updates, Pydantic validation, and is designed for easy integration with any charm that wants to provide SLO specifications.
 
----
+## SLO Relation Implementation Details
 
-## ✅ TASK COMPLETED: Fix Linting Errors
+This charm implements the `sloth` relation (interface: `slo`) which allows other charms to provide SLO specifications:
 
-**Status**: COMPLETED  
-**Date**: 2026-01-07  
-**Errors Fixed**: 27 → 0
+- **SlothRequirer** (in `src/charm.py`): Consumes SLO specs from related charms
+- **SlothProvider** (in external charm): Provides SLO specs in Sloth YAML format
+- **SLO Processing**: Specs written to `/etc/sloth/slos/`, rules generated to `/etc/sloth/rules/`
+- **Prometheus Integration**: Generated rules automatically pushed via `prometheus-scrape` relation
+- **Topology Labels**: SLO queries automatically injected with `juju_application`, `juju_model`, `juju_model_uuid`
 
-### Changes Made
+### Rule Name Transformation
 
-1. **Fixed Duplicate Test Functions**
-   - Removed duplicate test definitions in `test_sloth.py` (lines 311-416)
-   - Tests: `test_reconcile_additional_slos`, `test_reconcile_additional_slos_generates_rules`, `test_reconcile_multiple_additional_slos`
+**IMPORTANT**: Prometheus transforms hyphens to underscores in rule group names when loading rules:
+- Generated name: `sloth-slo-sli-recordings-my-service-requests-availability`
+- Prometheus name: `sloth_slo_sli_recordings_my_service_requests_availability`
+- When testing or querying rules, use **underscores**, not hyphens
 
-2. **Fixed Unused Variables**
-   - Replaced `state_out = ` with `_ = ` where appropriate
-   - Fixed `result` variable in test functions (kept where needed, replaced where not)
+### Testing SLO Relations
 
-3. **Fixed Whitespace Issues**
-   - Removed trailing whitespace from all files
-   - Cleaned up blank lines with spaces in `slo.py`
+The `tests/integration/slo-test-provider/` directory contains a test charm that demonstrates:
+- How to use SlothProvider to provide SLO specs
+- Dynamic SLO updates via config changes
+- Proper YAML formatting for Sloth specifications
 
-4. **Fixed Import Order**
-   - Moved Pydantic import to top of file (after module docstring)
-   - Removed duplicate LIBID/LIBAPI/LIBPATCH definitions
+To test manually, deploy the test provider charm alongside Sloth and relate them via the `sloth` relation endpoint.
 
-### Final Result
+## Container Images
 
-```bash
-$ tox -e lint
-All checks passed!
-  lint: OK (1.03=setup[0.14]+cmd[0.90] seconds)
-  congratulations :) (1.18 seconds)
-```
+This charm uses the following OCI images:
 
-**Zero lint errors remaining!** ✅
-
-### Updated Priority Order
-
-1. ~~**HIGH**: Fix linting errors~~ ✅ **DONE**
-2. **HIGH**: Complete library unit tests (proper Context API usage)
-3. **MEDIUM**: Update charm unit tests (rewrite for sloth)
-4. **MEDIUM**: Run and verify integration tests
-5. **LOW**: Documentation updates
-
----
-
-## Manual Verification Guide
-
-This section describes how to manually verify the complete SLO functionality end-to-end.
-
-### Prerequisites
-
-- Juju controller bootstrapped on microk8s or k8s cluster
-- `juju`, `kubectl`, and `charmcraft` installed
-- Built sloth-k8s charm and slo-test-provider charm
-
-### Step 1: Build Charms
-
-```bash
-# Build sloth-k8s charm
-cd /home/ubuntu/Code/sloth-k8s-operator
-charmcraft pack
-
-# Build test SLO provider charm
-cd tests/integration/slo-test-provider
-charmcraft pack
-cd ../../..
-```
-
-Expected result:
-- `sloth-k8s_ubuntu@24.04-amd64.charm` (~11MB)
-- `tests/integration/slo-test-provider/slo-test-provider_ubuntu-22.04-amd64.charm` (~10MB)
-
-### Step 2: Deploy Observability Stack
-
-```bash
-# Create a test model
-juju add-model sloth-manual-test
-
-# Deploy Prometheus
-juju deploy prometheus-k8s prometheus --channel 1/stable --trust
-
-# Deploy Grafana
-juju deploy grafana-k8s grafana --channel 1/stable --trust
-
-# Relate Prometheus and Grafana
-juju integrate grafana:grafana-source prometheus:grafana-source
-
-# Wait for active status
-juju wait-for application prometheus --query='status=="active"' --timeout=10m
-juju wait-for application grafana --query='status=="active"' --timeout=10m
-```
-
-### Step 3: Deploy Sloth
-
-```bash
-# Deploy sloth-k8s
-juju deploy ./sloth-k8s_ubuntu@24.04-amd64.charm sloth --trust \
-  --resource sloth-image=ghcr.io/slok/sloth:v0.11.0
-
-# Relate sloth to observability stack
-juju integrate sloth:metrics-endpoint prometheus:metrics-endpoint
-juju integrate sloth:grafana-dashboard grafana:grafana-dashboard
-
-# Wait for active status
-juju wait-for application sloth --query='status=="active"' --timeout=10m
-```
-
-### Step 4: Deploy SLO Provider
-
-```bash
-# Deploy test provider with custom SLO config
-juju deploy ./tests/integration/slo-test-provider/slo-test-provider_ubuntu-22.04-amd64.charm \
-  slo-test-provider \
-  --resource test-app-image=ubuntu:22.04 \
-  --config slo-service-name="my-test-service" \
-  --config slo-objective="99.5"
-
-# Wait for active status
-juju wait-for application slo-test-provider --query='status=="active"' --timeout=5m
-
-# Relate provider to sloth (using the new 'sloth' relation name)
-juju integrate slo-test-provider:sloth sloth:sloth
-
-# Wait for relation to establish
-sleep 30
-```
-
-### Step 5: Verify SLO Relation
-
-```bash
-# Check relation status
-juju status --relations
-
-# Expected output should show:
-# sloth:sloth <-> slo-test-provider:sloth (interface: slo)
-```
-
-### Step 6: Verify SLO Rules in Sloth Container
-
-```bash
-# Check SLO spec files in sloth container
-juju exec --unit sloth/0 -- ls -la /etc/sloth/slos/
-
-# Should show:
-# - prometheus_sloth_sli_plugin.yaml (built-in SLO for Prometheus availability)
-# - my-test-service.yaml (from slo-test-provider)
-
-# View the generated SLO spec
-juju exec --unit sloth/0 -- cat /etc/sloth/slos/my-test-service.yaml
-
-# Check generated rules
-juju exec --unit sloth/0 -- ls -la /etc/sloth/rules/
-
-# Should show:
-# - prometheus_sloth_sli_plugin.yaml
-# - my-test-service.yaml
-
-# View generated Prometheus rules
-juju exec --unit sloth/0 -- cat /etc/sloth/rules/my-test-service.yaml
-```
-
-Expected rule format:
-```yaml
-groups:
-  - name: sloth-slo-sli-recordings-my-test-service-requests-availability
-    rules:
-      - record: slo:sli_error:ratio_rate5m
-        expr: ...
-```
-
-### Step 7: Verify Rules in Prometheus
-
-```bash
-# Get Prometheus pod name
-PROM_POD=$(kubectl -n sloth-manual-test get pods -l app.kubernetes.io/name=prometheus -o jsonpath='{.items[0].metadata.name}')
-
-# Check Prometheus rules API
-kubectl -n sloth-manual-test exec $PROM_POD -- \
-  curl -s http://localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name | contains("my-test-service"))'
-
-# Or use juju exec
-juju exec --unit prometheus/0 -- \
-  curl -s http://localhost:9090/api/v1/rules | grep -A20 "my-test-service"
-```
-
-Expected output: Rules for "my-test-service" should appear in Prometheus.
-
-**Note**: It may take 30-60 seconds for rules to propagate from Sloth → relation → Prometheus → reload. Use retry logic if rules don't appear immediately.
-
-### Step 8: Verify Grafana Dashboard
-
-```bash
-# Get Grafana admin password
-GRAFANA_PASSWORD=$(juju run grafana/0 get-admin-password --format=json | jq -r '.["grafana/0"].results["admin-password"]')
-
-# Port-forward Grafana
-kubectl -n sloth-manual-test port-forward svc/grafana-k8s 3000:3000 &
-
-# Open browser to http://localhost:3000
-# Login: admin / <GRAFANA_PASSWORD>
-# Navigate to Dashboards → Sloth dashboard should be present
-```
-
-### Step 9: Test Dynamic SLO Updates
-
-```bash
-# Change SLO objective
-juju config slo-test-provider slo-objective="99.9"
-
-# Wait for relation to update
-sleep 20
-
-# Verify updated SLO in sloth container
-juju exec --unit sloth/0 -- cat /etc/sloth/slos/my-test-service.yaml | grep objective
-
-# Should show: objective: 99.9
-```
-
-### Step 10: Cleanup
-
-```bash
-# Destroy test model
-juju destroy-model sloth-manual-test --destroy-storage --no-prompt --force
-
-# Or just remove applications
-juju remove-application sloth
-juju remove-application slo-test-provider
-juju remove-application prometheus
-juju remove-application grafana
-```
-
-### Troubleshooting
-
-**Problem**: Rules not appearing in Prometheus
-
-**Solutions**:
-1. Wait longer (up to 60 seconds for propagation)
-2. Check sloth logs: `juju debug-log --replay --include sloth`
-3. Verify relation data: 
-   ```bash
-   juju show-unit slo-test-provider/0 --format=json | jq '.["slo-test-provider/0"]["relation-info"]'
-   ```
-4. Check for errors in Prometheus: `juju debug-log --replay --include prometheus`
-
-**Problem**: Sloth charm goes to error state
-
-**Solutions**:
-1. Check logs: `juju debug-log --replay --include sloth`
-2. Verify container readiness: `juju exec --unit sloth/0 -- pebble services`
-3. Check SLO generation errors: `juju exec --unit sloth/0 -- pebble logs sloth | tail -50`
-
-**Problem**: SLO provider not providing SLOs
-
-**Solutions**:
-1. Check relation status: `juju status --relations`
-2. Verify config: `juju config slo-test-provider`
-3. Check provider logs: `juju debug-log --replay --include slo-test-provider`
-
-### Expected Metrics and Verification
-
-After successful deployment and relation, you should see:
-
-1. **In Sloth Container**:
-   - `/etc/sloth/slos/` contains SLO spec files
-   - `/etc/sloth/rules/` contains generated Prometheus rules
-   - At least 2 SLO files: built-in Prometheus SLO + provider SLOs
-
-2. **In Prometheus**:
-   - Rules groups named `sloth-slo-sli-recordings-<service>-<slo-name>`
-   - Recording rules like `slo:sli_error:ratio_rate5m`
-   - Alert rules like `<ServiceName>HighErrorRate`
-
-3. **In Grafana**:
-   - Sloth dashboard available
-   - Panels showing SLO metrics (if metrics are being generated)
-
-4. **Juju Status**:
-   - All applications in `active` status
-   - Relation `sloth:sloth <-> slo-test-provider:sloth` established
-   - No error messages in unit workload status
+- **Sloth**: `ghcr.io/slok/sloth:v0.11.0` (official Sloth image)
+- **Nginx**: `ubuntu/nginx:1.24-24.04_beta` ([Canonical OCI Factory](https://github.com/canonical/oci-factory))
+- **Nginx Exporter**: `nginx/nginx-prometheus-exporter:1.1.0` (official exporter)

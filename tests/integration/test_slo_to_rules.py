@@ -31,8 +31,8 @@ def test_setup_full_cos_with_provider(juju: Juju, sloth_charm, sloth_resources, 
     )
 
     # Deploy COS components
-    juju.deploy("grafana-k8s", GRAFANA, channel="1/stable", trust=True)
-    juju.deploy("prometheus-k8s", PROMETHEUS, channel="1/stable", trust=True)
+    juju.deploy("grafana-k8s", GRAFANA, channel="2/stable", trust=True)
+    juju.deploy("prometheus-k8s", PROMETHEUS, channel="2/stable", trust=True)
 
     # Deploy SLO provider test charm with specific configuration
     juju.deploy(

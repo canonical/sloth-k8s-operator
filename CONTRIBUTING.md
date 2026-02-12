@@ -1,16 +1,8 @@
 # Contributing
 
-![GitHub License](https://img.shields.io/github/license/canonical/parca-k8s-operator)
-![GitHub Commit Activity](https://img.shields.io/github/commit-activity/y/canonical/parca-k8s-operator)
-![GitHub Lines of Code](https://img.shields.io/tokei/lines/github/canonical/parca-k8s-operator)
-![GitHub Issues](https://img.shields.io/github/issues/canonical/parca-k8s-operator)
-![GitHub PRs](https://img.shields.io/github/issues-pr/canonical/parca-k8s-operator)
-![GitHub Contributors](https://img.shields.io/github/contributors/canonical/parca-k8s-operator)
-![GitHub Watchers](https://img.shields.io/github/watchers/canonical/parca-k8s-operator?style=social)
-
 This documents explains the processes and practices recommended for contributing enhancements to this operator.
 
-- Generally, before developing enhancements to this charm, you should consider [opening an issue](https://github.com/canonical/parca-k8s-operator/issues) explaining your use case.
+- Generally, before developing enhancements to this charm, you should consider [opening an issue](https://github.com/canonical/sloth-k8s-operator/issues) explaining your use case.
 - If you would like to chat with us about your use-cases or proposed implementation, you can reach us at [Canonical Observability Stack Matrix public channel](https://matrix.to/#/#cos:ubuntu.com) or [Discourse](https://discourse.charmhub.io/).
 - Familiarising yourself with the [Charmed Operator Framework](https://juju.is/docs/sdk) library will help you a lot when working on new features or bug fixes.
 - All enhancements require review before being merged. Code review typically examines:
@@ -26,7 +18,7 @@ This documents explains the processes and practices recommended for contributing
 ## Notable design decisions
 
 **Limitations:** 
-This charm deploys and operates a single instance of parca. Since the ingress only exposes the leader unit, scaling parca-k8s up to more than 1 unit is not supported. Replicas will effectively be unreachable and won't be able to scrape any target or collect any profiles. 
+This charm deploys and operates a single instance of Sloth. Sloth is a rules generator, not a long-running service, so scaling is not applicable. 
 
 
 ## Developing
@@ -79,21 +71,20 @@ charmcraft pack
 
 ### Container image
 
-We are using the image `ubuntu/parca:0.23-24.04_stable`. Build info:
-- [source](https://github.com/canonical/parca-rock)
-- [build machinery](https://github.com/canonical/oci-factory)
-- [dockerhub](https://hub.docker.com/r/ubuntu/parca)
+We are using the official Sloth image: `ghcr.io/slok/sloth:v0.11.0`
+- [source](https://github.com/slok/sloth)
 
 ### Deploy
 
 ```sh
 # Create a model
-juju add-model parca-dev
+juju add-model sloth-dev
 # Enable DEBUG logging
 juju model-config logging-config="<root>=INFO;unit=DEBUG"
-juju deploy ./parca-k8s_ubuntu@24.04-amd64.charm  \
-  --resource parca-image=ubuntu/parca:0.23-24.04_stable \
+juju deploy ./sloth-k8s_ubuntu@24.04-amd64.charm  \
+  --resource sloth-image=ghcr.io/slok/sloth:v0.11.0 \
   --resource nginx-image=ubuntu/nginx:1.24-24.04_beta \
   --resource nginx-prometheus-exporter-image=nginx/nginx-prometheus-exporter:1.1.0  \
-  parca
+  --trust \
+  sloth
 ```
