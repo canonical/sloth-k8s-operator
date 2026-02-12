@@ -495,15 +495,15 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 3. Run `juju status` to see actual state
 4. Verify containers are running: `juju exec --unit sloth/0 -- pebble services`
 
-## Current Work Status - SLO Provider/Requirer Library
+## Current Work Status - Sloth Provider/Requirer Library
 
-### ✅ COMPLETED - All Tasks Finished (2026-01-23)
+### ✅ COMPLETED - All Tasks Finished (2026-02-12)
 
 #### Phase 1: SLO Library Implementation (2026-01-08)
 
-1. **SLO Charm Library** (`lib/charms/sloth_k8s/v0/slo.py`)
-   - ✅ Created SLOProvider class for charms to provide SLO specs
-   - ✅ Created SLORequirer class for Sloth to consume SLO specs
+1. **Sloth Charm Library** (moved to `charmlibs` repository as `charmlibs.interfaces.sloth`)
+   - ✅ Created SlothProvider class for charms to provide SLO specs (renamed from SLOProvider)
+   - ✅ Created SlothRequirer class for Sloth to consume SLO specs (renamed from SLORequirer)
    - ✅ Implemented Pydantic validation (SLOSpec model)
    - ✅ Added SLOsChangedEvent for dynamic updates
    - ✅ Comprehensive documentation in module docstring
@@ -517,7 +517,7 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
    - ✅ Maintains backward compatibility (hardcoded Prometheus SLO)
 
 3. **Charm Integration** (`src/charm.py`)
-   - ✅ Added SLORequirer instance
+   - ✅ Added SlothRequirer instance (renamed from SLORequirer)
    - ✅ Observes `slos_changed` event
    - ✅ Passes collected SLOs to Sloth workload during reconciliation
    - ✅ New event handler: `_on_slos_changed()`
@@ -538,8 +538,18 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 
 6. **Code Quality** (commit: `c2d73fb`)
    - ✅ Removed unnecessary `lib/charms/sloth_k8s/v0/__init__.py`
-   - ✅ Added type: ignore comments for SLOProviderEvents/SLORequirerEvents
+   - ✅ Added type: ignore comments for SlothProviderEvents/SlothRequirerEvents
    - ✅ Bumped LIBPATCH to 5 for library updates
+
+#### Phase 3: Migration to charmlibs Repository (2026-02-12)
+
+8. **Library Migration**
+   - ✅ Moved library from `lib/charms/sloth_k8s/v0/slo.py` to `charmlibs` repository
+   - ✅ Renamed classes: `SLOProvider` → `SlothProvider`, `SLORequirer` → `SlothRequirer`
+   - ✅ Updated dependency to `charmlibs-interfaces-sloth @ git+https://github.com/canonical/charmlibs.git@feat/slo#subdirectory=interfaces/sloth`
+   - ✅ Updated charm code to use new class names
+   - ✅ Updated test provider charm to use new class names
+   - ✅ Refreshed lock file with `tox -e lock` to fetch latest library version
 
 7. **TLS Removal** (commit: `038c0ef`)
    - ✅ Removed TLS-related code (Sloth has no external endpoints)
@@ -555,31 +565,31 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 - **Integration Tests**: 12/12 passing (all fixed!)
 - **Build Status**: Clean
 
-### 🎯 Next Steps for SLO Provider Implementation
+### 🎯 Next Steps for Sloth Provider Implementation
 
 To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
 
-1. **Add the SLO library dependency** to your `pyproject.toml` or `requirements.txt`:
+1. **Add the Sloth library dependency** to your `pyproject.toml`:
    ```toml
    # In pyproject.toml
    dependencies = [
-       "charmlibs-interfaces-slo @ git+https://github.com/canonical/charmlibs.git@main#subdirectory=interfaces/slo",
+       "charmlibs-interfaces-sloth @ git+https://github.com/canonical/charmlibs.git@feat/slo#subdirectory=interfaces/sloth",
    ]
    ```
    
-   Or for requirements.txt:
-   ```
-   charmlibs-interfaces-slo @ git+https://github.com/canonical/charmlibs.git@main#subdirectory=interfaces/slo
+   After adding the dependency, update the lock file:
+   ```bash
+   tox -e lock
    ```
 
-2. **Import and instantiate SLOProvider**:
+2. **Import and instantiate SlothProvider**:
    ```python
-   from charmlibs.interfaces.slo import SLOProvider
+   from charmlibs.interfaces.sloth import SlothProvider
    
    class YourCharm(CharmBase):
        def __init__(self, *args):
            super().__init__(*args)
-           self.slo_provider = SLOProvider(self)
+           self.slo_provider = SlothProvider(self)
    ```
 
 3. **Define your SLO specification** following Sloth's format (as YAML string):

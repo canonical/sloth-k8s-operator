@@ -14,7 +14,7 @@ import cosl.reconciler
 import ops
 import ops_tracing
 import yaml
-from charmlibs.interfaces.sloth import SLORequirer
+from charmlibs.interfaces.sloth import SlothRequirer
 from charms.catalogue_k8s.v1.catalogue import CatalogueConsumer, CatalogueItem
 from charms.certificate_transfer_interface.v1.certificate_transfer import (
     CertificateTransferRequires,
@@ -69,7 +69,7 @@ class SlothOperatorCharm(ops.CharmBase):
         )
 
         # SLO provider/requirer for collecting SLO specs from related charms
-        self.slo_requirer = SLORequirer(self)
+        self.slo_requirer = SlothRequirer(self)
 
         # Workloads
         self.sloth = Sloth(
@@ -131,8 +131,10 @@ class SlothOperatorCharm(ops.CharmBase):
         self._reconcile_relations()
 
     def _reconcile_relations(self):
-        self.metrics_endpoint_provider.set_scrape_job_spec()
+        # Update alert rules first, then trigger relation update
         self._update_alert_rules()
+        # Trigger the metrics endpoint provider to send updated rules to Prometheus
+        self.metrics_endpoint_provider.set_scrape_job_spec()
 
     def _update_alert_rules(self):
         """Update alert rules from generated SLO specifications."""
@@ -156,9 +158,6 @@ class SlothOperatorCharm(ops.CharmBase):
                 # Write the rules as YAML
                 alert_rules_file.write_text(yaml.dump(alert_rules))
                 logger.info(f"Updated alert rules with {len(alert_rules['groups'])} groups to {alert_rules_file}")
-
-                # Trigger the metrics endpoint provider to re-read the rules
-                self.metrics_endpoint_provider.set_scrape_job_spec()
         except Exception as e:
             logger.error(f"Failed to update alert rules: {e}")
 

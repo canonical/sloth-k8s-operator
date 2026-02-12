@@ -7,7 +7,7 @@
 import logging
 
 import ops
-from charmlibs.interfaces.sloth import SLOProvider
+from charmlibs.interfaces.sloth import SlothProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class SLOTestProviderCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
-        self.slo_provider = SLOProvider(self, relation_name="sloth")
+        self.slo_provider = SlothProvider(self, relation_name="sloth")
 
         self.framework.observe(self.on.config_changed, self._on_config_changed)
         self.framework.observe(self.on.sloth_relation_joined, self._on_sloth_relation_joined)
