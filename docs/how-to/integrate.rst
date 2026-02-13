@@ -33,6 +33,7 @@ After that, you might want to update the lockfile; for example with ``tox -e loc
 In the charm's code, import the SlothProvider object and set it up:
 
 .. code-block:: python
+
    import ops
    # import the relation endpoint wrapper
    from charmlibs.interfaces.sloth import SlothProvider
@@ -94,7 +95,7 @@ You should decide how much freedom and control you want to give to the users and
 4. Create SLO Specification Files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The last part is to write the actual spec file(s) that will be sent to Sloth. The format of the spec should be the one expected by Sloth. You can find examples of this format and a full specification in the `Sloth documentation <https://sloth.dev/docs/slo-specification>`_. If your SLO specifications are currently in a different format (like Pyrra), you'll need to convert them to the Sloth format.
+The last part is to write the actual spec file(s) that will be sent to Sloth. The format of the spec should be the one expected by Sloth. You can find examples of this format and a full specification in the `Sloth documentation <https://pkg.go.dev/github.com/slok/sloth/pkg/prometheus/api/v1>`_. If your SLO specifications are currently in a different format (like Pyrra), you'll need to convert them to the Sloth format.
 
 Once you have specs in the Sloth format, save them in ``./src/slos``. Make sure the path to the spec file(s) matches the one used in the ``_get_slo_spec`` function.
 
