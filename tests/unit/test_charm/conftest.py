@@ -13,7 +13,7 @@ def patch_all(tmp_path):
     with ExitStack() as stack:
         stack.enter_context(patch("lightkube.core.client.GenericSyncClient"))
         stack.enter_context(patch("charm.CA_CERT_PATH", str(ca_tmp_path)))
-        stack.enter_context(patch("sloth.Sloth.version", "0.11.0"))
+        stack.enter_context(patch("sloth.Sloth.version", return_value="0.11.0"))
         yield
 
 

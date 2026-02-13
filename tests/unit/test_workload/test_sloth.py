@@ -16,7 +16,6 @@ def sloth():
     return Sloth(
         container=container_mock,
         slo_period="30d",
-        additional_slos=[],
     )
 
 
@@ -104,7 +103,6 @@ def test_reconcile_additional_slos(sloth):
         ],
     }
 
-    sloth._additional_slos = [additional_slo]
     sloth._container.exists.return_value = False
 
     # Mock exec for sloth generate command
@@ -112,7 +110,7 @@ def test_reconcile_additional_slos(sloth):
     exec_mock.wait_output.return_value = ("generated rules", "")
     sloth._container.exec.return_value = exec_mock
 
-    sloth._reconcile_additional_slos()
+    sloth._reconcile_additional_slos([additional_slo])
 
     # Verify the SLO spec was written
     push_calls = list(sloth._container.push.call_args_list)
@@ -137,7 +135,6 @@ def test_reconcile_additional_slos_generates_rules(sloth):
         "slos": [{"name": "test"}],
     }
 
-    sloth._additional_slos = [additional_slo]
     sloth._container.exists.return_value = False
 
     # Mock exec for sloth generate command
@@ -146,7 +143,7 @@ def test_reconcile_additional_slos_generates_rules(sloth):
     exec_mock.wait_output.return_value = (generated_rules, "")
     sloth._container.exec.return_value = exec_mock
 
-    sloth._reconcile_additional_slos()
+    sloth._reconcile_additional_slos([additional_slo])
 
     # Verify sloth generate was called
     assert sloth._container.exec.called
@@ -173,7 +170,6 @@ def test_reconcile_multiple_additional_slos(sloth):
         {"version": "prometheus/v1", "service": "app2", "slos": [{"name": "test2"}]},
     ]
 
-    sloth._additional_slos = additional_slos
     sloth._container.exists.return_value = False
 
     # Mock exec
@@ -181,7 +177,7 @@ def test_reconcile_multiple_additional_slos(sloth):
     exec_mock.wait_output.return_value = ("rules", "")
     sloth._container.exec.return_value = exec_mock
 
-    sloth._reconcile_additional_slos()
+    sloth._reconcile_additional_slos(additional_slos)
 
     # Verify both SLO specs were written
     push_calls = list(sloth._container.push.call_args_list)
