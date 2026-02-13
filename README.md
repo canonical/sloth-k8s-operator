@@ -61,3 +61,73 @@ $ juju show-unit sloth-k8s/0 --format=json | jq -r '.["sloth-k8s/0"]["address"]'
 
 Sloth generates SLO rules based on provided SLO specifications. The generated rules can be
 consumed by Prometheus for monitoring service reliability.
+
+## Implementing SLO Support in Your Charm
+
+To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
+
+### 1. Add the Sloth library dependency
+
+Add `charmlibs-interfaces-sloth` to your dependencies in your charm's preferred manner.
+
+### 2. Import and instantiate SlothProvider
+
+```python
+from charmlibs.interfaces.sloth import SlothProvider
+
+class YourCharm(CharmBase):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.slo_provider = SlothProvider(self)
+```
+
+### 3. Define your SLO specification
+
+Follow Sloth's format (as YAML string):
+
+```python
+slo_yaml = """
+version: prometheus/v1
+service: your-service-name
+labels:
+  team: your-team
+slos:
+  - name: availability
+    objective: 99.9
+    description: "99.9% availability"
+    sli:
+      events:
+        error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+        total_query: 'sum(rate(http_requests_total[{{.window}}]))'
+    alerting:
+      name: YourServiceHighErrorRate
+      labels:
+        severity: page
+"""
+```
+
+### 4. Provide the SLO spec
+
+Provide the SLO spec when appropriate (e.g., on pebble-ready, config-changed):
+
+```python
+self.slo_provider.provide_slos(slo_yaml)
+```
+
+### 5. Add metadata
+
+In your charm's `charmcraft.yaml`:
+
+```yaml
+provides:
+  slos:
+    interface: slo
+```
+
+### 6. Relate to Sloth
+
+```bash
+juju relate your-charm:slos sloth-k8s:slos
+```
+
+The Sloth library supports dynamic SLO updates, Pydantic validation, and is designed for easy integration with any charm that wants to provide SLO specifications.

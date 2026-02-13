@@ -70,7 +70,7 @@ requires:
     interface: loki_push_api
     description: |
         Enables sending workload logs to a loki-push-api compatible endpoint.
-  slos:
+  sloth:
     optional: true
     interface: slo
     description: |

@@ -7,7 +7,7 @@
 import logging
 
 import ops
-from charms.sloth_k8s.v0.slo import SLOProvider
+from charmlibs.interfaces.sloth import SlothProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,63 +18,54 @@ class SLOTestProviderCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
 
-        self.slo_provider = SLOProvider(self, relation_name="slos")
+        self.slo_provider = SlothProvider(self, relation_name="sloth")
 
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.slos_relation_joined, self._on_slos_relation_joined)
-        self.framework.observe(self.on.slos_relation_changed, self._on_slos_relation_changed)
+        self.framework.observe(self.on.sloth_relation_joined, self._on_sloth_relation_joined)
+        self.framework.observe(self.on.sloth_relation_changed, self._on_sloth_relation_changed)
 
     def _on_config_changed(self, event: ops.ConfigChangedEvent):
         """Handle config changed event."""
         self._provide_slo()
         self.unit.status = ops.ActiveStatus("Ready to provide SLOs")
 
-    def _on_slos_relation_joined(self, event: ops.RelationJoinedEvent):
+    def _on_sloth_relation_joined(self, event: ops.RelationJoinedEvent):
         """Handle SLO relation joined."""
         self._provide_slo()
 
-    def _on_slos_relation_changed(self, event: ops.RelationChangedEvent):
+    def _on_sloth_relation_changed(self, event: ops.RelationChangedEvent):
         """Handle SLO relation changed."""
         self._provide_slo()
 
     def _provide_slo(self):
         """Provide SLO specification to Sloth."""
         service_name = self.config.get("slo-service-name", "test-service")
-        objective = float(self.config.get("slo-objective", "99.9"))
+        objective = float(self.config.get("slo-requests-availability", "99.9"))
 
-        slo_spec = {
-            "version": "prometheus/v1",
-            "service": service_name,
-            "labels": {
-                "team": "test-team",
-                "component": "integration-test",
-            },
-            "slos": [
-                {
-                    "name": "requests-availability",
-                    "objective": objective,
-                    "description": f"{objective}% of requests should succeed",
-                    "sli": {
-                        "events": {
-                            "error_query": f'sum(rate(http_requests_total{{service="{service_name}",status=~"5.."}}[{{{{.window}}}}]))',
-                            "total_query": f'sum(rate(http_requests_total{{service="{service_name}"}}[{{{{.window}}}}]))',
-                        }
-                    },
-                    "alerting": {
-                        "name": f"{service_name.replace('-', '').title()}HighErrorRate",
-                        "labels": {
-                            "severity": "critical",
-                        },
-                        "annotations": {
-                            "summary": f"{service_name} is experiencing high error rate",
-                        },
-                    },
-                }
-            ],
-        }
+        # Note: New library expects YAML strings, not dictionaries
+        slo_yaml = f"""version: prometheus/v1
+service: {service_name}
+labels:
+  team: test-team
+  component: integration-test
+slos:
+  - name: requests-availability
+    objective: {objective}
+    description: "{objective}% of requests should succeed"
+    sli:
+      events:
+        error_query: 'sum(rate(http_requests_total{{service="{service_name}",status=~"5.."}}[{{{{.window}}}}]))'
+        total_query: 'sum(rate(http_requests_total{{service="{service_name}"}}[{{{{.window}}}}]))'
+    alerting:
+      name: {service_name.replace('-', '').title()}HighErrorRate
+      labels:
+        severity: critical
+      annotations:
+        summary: "{service_name} is experiencing high error rate"
+"""
 
         try:
-            self.slo_provider.provide_slo(slo_spec)
+            self.slo_provider.provide_slos(slo_yaml)
             logger.info(f"Provided SLO for service '{service_name}' with {objective}% objective")
         except Exception as e:
             logger.error(f"Failed to provide SLO: {e}")

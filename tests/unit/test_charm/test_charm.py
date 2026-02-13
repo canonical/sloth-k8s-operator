@@ -87,7 +87,7 @@ def test_install_container_not_ready(
 
 def test_slo_relation_joined(context, base_state):
     """Test that SLO relation can be joined."""
-    slo_relation = Relation("slos", remote_app_name="slo-provider")
+    slo_relation = Relation("sloth", remote_app_name="slo-provider")
     state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
 
     state_out = context.run(context.on.relation_joined(slo_relation), state)
@@ -100,7 +100,7 @@ def test_slo_relation_changed_with_valid_data(context, base_state):
         "version": "prometheus/v1",
         "service": "test-app",
         "labels": {"team": "test"},
-        "slos": [
+        "sloth": [
             {
                 "name": "availability",
                 "objective": 99.9,
@@ -116,7 +116,7 @@ def test_slo_relation_changed_with_valid_data(context, base_state):
     }
     slo_yaml = yaml.safe_dump(slo_spec)
     slo_relation = Relation(
-        "slos",
+        "sloth",
         remote_app_name="slo-provider",
         remote_units_data={0: {"slo_spec": slo_yaml}},
     )
@@ -130,7 +130,7 @@ def test_slo_relation_changed_with_invalid_data(context, base_state):
     """Test SLO relation changed with invalid SLO data."""
     invalid_slo_yaml = "invalid: yaml: {{{"
     slo_relation = Relation(
-        "slos",
+        "sloth",
         remote_app_name="slo-provider",
         remote_units_data={0: {"slo_spec": invalid_slo_yaml}},
     )
@@ -144,7 +144,7 @@ def test_slo_relation_changed_with_invalid_data(context, base_state):
 
 def test_slo_relation_departed(context, base_state):
     """Test SLO relation departed."""
-    slo_relation = Relation("slos", remote_app_name="slo-provider")
+    slo_relation = Relation("sloth", remote_app_name="slo-provider")
     state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
 
     state_out = context.run(context.on.relation_departed(slo_relation), state)
@@ -157,7 +157,7 @@ def test_multiple_slo_relations(context, base_state):
     slo_spec_1 = {
         "version": "prometheus/v1",
         "service": "app1",
-        "slos": [
+        "sloth": [
             {
                 "name": "availability",
                 "objective": 99.9,
@@ -168,7 +168,7 @@ def test_multiple_slo_relations(context, base_state):
     slo_spec_2 = {
         "version": "prometheus/v1",
         "service": "app2",
-        "slos": [
+        "sloth": [
             {
                 "name": "availability",
                 "objective": 99.5,
@@ -177,12 +177,12 @@ def test_multiple_slo_relations(context, base_state):
         ],
     }
     slo_relation_1 = Relation(
-        "slos",
+        "sloth",
         remote_app_name="provider1",
         remote_units_data={0: {"slo_spec": yaml.safe_dump(slo_spec_1)}},
     )
     slo_relation_2 = Relation(
-        "slos",
+        "sloth",
         remote_app_name="provider2",
         remote_units_data={0: {"slo_spec": yaml.safe_dump(slo_spec_2)}},
     )

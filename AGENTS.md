@@ -434,7 +434,7 @@ juju models | grep test- | awk '{print $1}' | xargs -I {} juju destroy-model {} 
 - **Integration tests**: ~80-120 seconds per test
 - **Dependency updates**: ~20-30 seconds
 
-### Architecture Decisions
+## Architecture Decisions
 
 ### Why try/except in __init__?
 During install hook, containers may not be ready. The try/except allows charm initialization to complete, with reconciliation happening on subsequent hooks (pebble-ready, config-changed).
@@ -444,13 +444,6 @@ During install hook, containers may not be ready. The try/except allows charm in
 - Allows certificate management
 - Consistent with Canonical COS patterns
 - Metrics collection via nginx-prometheus-exporter
-
-### Why simplify from Parca?
-Sloth is simpler than Parca - it doesn't need:
-- S3 storage (no profile persistence)
-- Scraping configs (generates rules, doesn't scrape)
-- gRPC (HTTP only)
-- Complex persistence options
 
 ### Why absolute paths for SLO files?
 Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
@@ -495,171 +488,40 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 3. Run `juju status` to see actual state
 4. Verify containers are running: `juju exec --unit sloth/0 -- pebble services`
 
-## Current Work Status - SLO Provider/Requirer Library
+## SLO Relation Interface
 
-### ✅ COMPLETED - All Tasks Finished (2026-01-23)
+For guidance on how to implement SLO support in your own charm using the Sloth library, see the "Implementing SLO Support in Your Charm" section in the [README.md](README.md).
 
-#### Phase 1: SLO Library Implementation (2026-01-08)
+## SLO Relation Implementation Details
 
-1. **SLO Charm Library** (`lib/charms/sloth_k8s/v0/slo.py`)
-   - ✅ Created SLOProvider class for charms to provide SLO specs
-   - ✅ Created SLORequirer class for Sloth to consume SLO specs
-   - ✅ Implemented Pydantic validation (SLOSpec model)
-   - ✅ Added SLOsChangedEvent for dynamic updates
-   - ✅ Comprehensive documentation in module docstring
+This charm implements the `sloth` relation (interface: `slo`) which allows other charms to provide SLO specifications:
 
-2. **Sloth Workload Updates** (`src/sloth.py`)
-   - ✅ Added `additional_slos` parameter to constructor
-   - ✅ Implemented `_reconcile_additional_slos()` method
-   - ✅ Each SLO spec is written to `/etc/sloth/slos/` in container
-   - ✅ Rules generated via `sloth generate` for each SLO
-   - ✅ Rules saved to `/etc/sloth/rules/` in container
-   - ✅ Maintains backward compatibility (hardcoded Prometheus SLO)
+- **SlothRequirer** (in `src/charm.py`): Consumes SLO specs from related charms
+- **SlothProvider** (in external charm): Provides SLO specs in Sloth YAML format
+- **SLO Processing**: Specs written to `/etc/sloth/slos/`, rules generated to `/etc/sloth/rules/`
+- **Prometheus Integration**: Generated rules automatically pushed via `prometheus-scrape` relation
+- **Topology Labels**: SLO queries automatically injected with `juju_application`, `juju_model`, `juju_model_uuid`
 
-3. **Charm Integration** (`src/charm.py`)
-   - ✅ Added SLORequirer instance
-   - ✅ Observes `slos_changed` event
-   - ✅ Passes collected SLOs to Sloth workload during reconciliation
-   - ✅ New event handler: `_on_slos_changed()`
+### Rule Name Transformation
 
-4. **Charm Metadata** (`charmcraft.yaml`)
-   - ✅ Added `slos` relation (requires side, interface: slo)
-   - ✅ Marked as optional to maintain backward compatibility
+**IMPORTANT**: Prometheus transforms hyphens to underscores in rule group names when loading rules:
+- Generated name: `sloth-slo-sli-recordings-my-service-requests-availability`
+- Prometheus name: `sloth_slo_sli_recordings_my_service_requests_availability`
+- When testing or querying rules, use **underscores**, not hyphens
 
-#### Phase 2: Test Fixes and Refinements (2026-01-23)
+### Testing SLO Relations
 
-5. **Integration Test Fixes** (commits: `932ee70`, `bfc9c07`, `f3b2dc8`)
-   - ✅ Fixed `juju.run()` vs `juju.exec()` API usage patterns
-   - ✅ Fixed action result access (`.results.get()` instead of parsing stdout)
-   - ✅ Added retry logic for Prometheus rule verification (rules take time to propagate)
-   - ✅ Fixed slo-test-provider charm build and metadata
-   - ✅ Fixed absolute path usage for SLO files (prevents file not found errors)
-   - ✅ Improved error logging (capture stderr from `sloth generate`)
+The `tests/integration/slo-test-provider/` directory contains a test charm that demonstrates:
+- How to use SlothProvider to provide SLO specs
+- Dynamic SLO updates via config changes
+- Proper YAML formatting for Sloth specifications
 
-6. **Code Quality** (commit: `c2d73fb`)
-   - ✅ Removed unnecessary `lib/charms/sloth_k8s/v0/__init__.py`
-   - ✅ Added type: ignore comments for SLOProviderEvents/SLORequirerEvents
-   - ✅ Bumped LIBPATCH to 5 for library updates
+To test manually, deploy the test provider charm alongside Sloth and relate them via the `sloth` relation endpoint.
 
-7. **TLS Removal** (commit: `038c0ef`)
-   - ✅ Removed TLS-related code (Sloth has no external endpoints)
-   - ✅ Removed models.py, _tls_config property, _reconcile_tls_config method
-   - ✅ Simplified Sloth constructor (no tls_config parameter)
-   - ✅ Added missing `catalogue` and `ingress` relations to metadata
+## Container Images
 
-### 📊 Final Metrics
+This charm uses the following OCI images:
 
-- **Total Unit Tests**: 124 passing (no change)
-- **Code Coverage**: 76% (target: >75%)
-- **Lint Errors**: 0
-- **Integration Tests**: 12/12 passing (all fixed!)
-- **Build Status**: Clean
-
-### 🎯 Next Steps for SLO Provider Implementation
-
-To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
-
-1. **Add the SLO library dependency**:
-   ```bash
-   charmcraft fetch-lib charms.sloth_k8s.v0.slo
-   ```
-
-2. **Import and instantiate SLOProvider**:
-   ```python
-   from charms.sloth_k8s.v0.slo import SLOProvider
-   
-   class YourCharm(CharmBase):
-       def __init__(self, *args):
-           super().__init__(*args)
-           self.slo_provider = SLOProvider(self)
-   ```
-
-3. **Define your SLO specification** following Sloth's format:
-   ```python
-   slo_spec = {
-       "version": "prometheus/v1",
-       "service": "your-service-name",
-       "labels": {"team": "your-team"},
-       "slos": [
-           {
-               "name": "availability",
-               "objective": 99.9,
-               "description": "99.9% availability",
-               "sli": {
-                   "events": {
-                       "error_query": 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))',
-                       "total_query": "sum(rate(http_requests_total[{{.window}}]))",
-                   }
-               },
-               "alerting": {
-                   "name": "YourServiceHighErrorRate",
-                   "labels": {"severity": "page"},
-               },
-           }
-       ],
-   }
-   ```
-
-4. **Provide the SLO spec** when appropriate (e.g., on pebble-ready, config-changed):
-   ```python
-   self.slo_provider.provide_slo(slo_spec)
-   ```
-
-5. **Add metadata** in your charm's `charmcraft.yaml`:
-   ```yaml
-   provides:
-     slos:
-       interface: slo
-   ```
-
-6. **Relate to Sloth**:
-   ```bash
-   juju relate your-charm:slos sloth:slos
-   ```
-
-The SLO library is now ready for use!
-
----
-
-## ✅ TASK COMPLETED: Fix Linting Errors
-
-**Status**: COMPLETED  
-**Date**: 2026-01-07  
-**Errors Fixed**: 27 → 0
-
-### Changes Made
-
-1. **Fixed Duplicate Test Functions**
-   - Removed duplicate test definitions in `test_sloth.py` (lines 311-416)
-   - Tests: `test_reconcile_additional_slos`, `test_reconcile_additional_slos_generates_rules`, `test_reconcile_multiple_additional_slos`
-
-2. **Fixed Unused Variables**
-   - Replaced `state_out = ` with `_ = ` where appropriate
-   - Fixed `result` variable in test functions (kept where needed, replaced where not)
-
-3. **Fixed Whitespace Issues**
-   - Removed trailing whitespace from all files
-   - Cleaned up blank lines with spaces in `slo.py`
-
-4. **Fixed Import Order**
-   - Moved Pydantic import to top of file (after module docstring)
-   - Removed duplicate LIBID/LIBAPI/LIBPATCH definitions
-
-### Final Result
-
-```bash
-$ tox -e lint
-All checks passed!
-  lint: OK (1.03=setup[0.14]+cmd[0.90] seconds)
-  congratulations :) (1.18 seconds)
-```
-
-**Zero lint errors remaining!** ✅
-
-### Updated Priority Order
-
-1. ~~**HIGH**: Fix linting errors~~ ✅ **DONE**
-2. **HIGH**: Complete library unit tests (proper Context API usage)
-3. **MEDIUM**: Update charm unit tests (rewrite for sloth)
-4. **MEDIUM**: Run and verify integration tests
-5. **LOW**: Documentation updates
+- **Sloth**: `ghcr.io/slok/sloth:v0.11.0` (official Sloth image)
+- **Nginx**: `ubuntu/nginx:1.24-24.04_beta` ([Canonical OCI Factory](https://github.com/canonical/oci-factory))
+- **Nginx Exporter**: `nginx/nginx-prometheus-exporter:1.1.0` (official exporter)

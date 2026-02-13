@@ -21,6 +21,8 @@ bases:
 parts:
   charm:
     plugin: charm
+    build-packages:
+      - git
 
 containers:
   test-app:
@@ -33,7 +35,7 @@ resources:
     upstream-source: ubuntu:22.04
 
 provides:
-  slos:
+  sloth:
     interface: slo
 
 config:
@@ -42,7 +44,7 @@ config:
       description: Name of the service in the SLO spec
       type: string
       default: "test-service"
-    slo-objective:
+    slo-requests-availability:
       description: SLO objective percentage (e.g., 99.9)
       type: string
       default: "99.9"
