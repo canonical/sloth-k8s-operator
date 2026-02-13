@@ -72,7 +72,7 @@ requires:
         Enables sending workload logs to a loki-push-api compatible endpoint.
   sloth:
     optional: true
-    interface: slo
+    interface: sloth
     description: |
       Receives SLO (Service Level Objective) specifications from related charms.
       Sloth will convert these specifications into Prometheus recording and alerting rules.
