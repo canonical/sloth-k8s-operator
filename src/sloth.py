@@ -37,21 +37,19 @@ class Sloth:
         self,
         container: Container,
         slo_period: str = "30d",
-        additional_slos: typing.Optional[typing.List[typing.Dict]] = None,
     ):
         self._container = container
         self._slo_period = slo_period
-        self._additional_slos = additional_slos or []
 
-    def reconcile(self):
+    def reconcile(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Unconditional control logic."""
         if self._container.can_connect():
-            self._reconcile_slo_specs()
+            self._reconcile_slo_specs(additional_slos)
             # Note: sloth is not a long-running service, so we don't need to manage it via Pebble
             # It's a generator tool that creates rules and exits
             # self._reconcile_sloth_service()
 
-    def _reconcile_slo_specs(self):
+    def _reconcile_slo_specs(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Create SLO specifications and generate Prometheus rules."""
         # Create directories
         for directory in [SLO_SPECS_DIR, GENERATED_RULES_DIR]:
@@ -74,7 +72,7 @@ class Sloth:
             self._generate_rules_from_slo(slo_path)
 
         # Process additional SLOs from relations
-        self._reconcile_additional_slos()
+        self._reconcile_additional_slos(additional_slos)
 
     def _get_prometheus_availability_slo(self) -> str:
         """Return the hardcoded Prometheus availability SLO specification."""
@@ -120,13 +118,13 @@ class Sloth:
         }
         return yaml.safe_dump(slo, default_flow_style=False)
 
-    def _reconcile_additional_slos(self):
+    def _reconcile_additional_slos(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Process additional SLOs from relations and generate rules."""
-        if not self._additional_slos:
+        if not additional_slos:
             logger.debug("No additional SLOs to process")
             return
 
-        for idx, slo_spec in enumerate(self._additional_slos):
+        for idx, slo_spec in enumerate(additional_slos):
             try:
                 service_name = slo_spec.get("service", f"service-{idx}")
                 slo_path = f"{SLO_SPECS_DIR}/{service_name}.yaml"
@@ -230,7 +228,6 @@ class Sloth:
             }
         )
 
-    @property
     def version(self) -> str:
         """Fetch the version from the binary."""
         try:

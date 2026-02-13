@@ -68,7 +68,7 @@ def test_config_changed_container_not_ready(
 
     state_out = context.run(context.on.config_changed(), state)
     assert isinstance(state_out.unit_status, WaitingStatus)
-    assert "Waiting for containers" in state_out.unit_status.message
+    assert "Waiting for workload container..." in state_out.unit_status.message
 
 
 def test_install_container_not_ready(
