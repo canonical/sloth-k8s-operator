@@ -9,7 +9,7 @@ dependencies = [
     "pydantic>=2,<3",
     "cosl",
     "coordinated_workers",
-    "charmlibs-interfaces-sloth @ git+https://github.com/canonical/charmlibs.git@feat/slo#subdirectory=interfaces/sloth",
+    "charmlibs-interfaces-sloth",
     # ---PYDEPS---
     # lib/charms/tls_certificates_interface/v4/tls_certificates.py
     "cryptography",
