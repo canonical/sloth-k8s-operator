@@ -10,15 +10,16 @@ Integration Steps
 1. Add the SLO Relation
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-If the charm doesn't already have a Sloth integration, add to the charm's ``charmcraft.yaml`` file, under ``requires``, a new section:
+If the charm doesn't already have a Sloth integration, add to the charm's ``charmcraft.yaml`` file, under ``provides``, a new section:
 
 .. code-block:: yaml
 
-   slos:
-     optional: true
-     interface: slo
-     description: |
-       Sends SLOs (Service Level Objectives) specifications to a Sloth charm.
+   provides:
+     slos:
+       optional: true
+       interface: sloth
+       description: |
+         Sends SLOs (Service Level Objectives) specifications to a Sloth charm.
 
 2. Install the Sloth Library
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -60,6 +61,13 @@ In the charm's code, import the SlothProvider object and set it up:
            # The implementation of this function will depend on how you want to expose the SLOs to your users and how
            # customizable they should be. These are some examples of how you could implement this function:
 
+           # DEFAULT:
+           # if the user provides a full spec as a config option; we just return it.
+           # this gives the user full flexibility but also requires them to know the Sloth format and to write the
+           # spec themselves, so it might not be the best user experience.
+           if spec := self.config["slos"]:
+               return spec
+
            # OPTION 1: The spec could be static and always the same, so you just read it from a file:
            with open("./slos/slo_spec.yaml", "r") as f:
                return f.read()
@@ -78,12 +86,6 @@ In the charm's code, import the SlothProvider object and set it up:
                )
                return rendered_template
 
-           # OPTION 4:
-           # finally, you could ask the user to input the whole spec as a config option and just return it.
-           # this gives the user full flexibility but also requires them to know the Sloth format and to write the
-           # spec themselves, so it might not be the best user experience.
-           return self.config["slo_spec"]
-
        def _send_slos(self, event: ops.RelationChangedEvent):
            spec = self._get_slo_spec()
            self.sloth.provide_slos(spec)
@@ -91,6 +93,21 @@ In the charm's code, import the SlothProvider object and set it up:
 The crucial part here is deciding how to implement ``_get_slo_spec``. You have to choose how the charm should expose to its users the objective values and how customizable they should be.
 Often, the objective values can vary dramatically based on the deployment that the charm is used in (the same database software could be super-critical, important, or just a nice-to-have depending on the context).
 You should decide how much freedom and control you want to give to the users and implement ``_get_slo_spec`` accordingly.
+
+In general, we recommend adding a fallback so the user can provide a fully custom Sloth spec as a config option, and then eventually providing some opinionated presets or a template to make it easier for users that don't want to write the spec themselves.
+
+Add any config options accordingly to charmcraft.yaml:
+
+.. code-block:: yaml
+
+   options:
+     slos:
+       description: |
+         Provide the SLOs (Service Level Objective) to use.
+         Must be a YAML string in Sloth format (cfr. https://pkg.go.dev/github.com/slok/sloth/pkg/prometheus/api/v1).
+       type: string
+       default: ""
+
 
 4. Create SLO Specification Files
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
