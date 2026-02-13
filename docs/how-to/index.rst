@@ -17,4 +17,5 @@ Basic deployment and operation
 
     deploy
     configure-slo-periods
+    integrate
 
