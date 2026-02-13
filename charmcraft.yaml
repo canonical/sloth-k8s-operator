@@ -70,12 +70,6 @@ requires:
     interface: loki_push_api
     description: |
         Enables sending workload logs to a loki-push-api compatible endpoint.
-  slos:
-    optional: true
-    interface: slo
-    description: |
-      Receives SLO (Service Level Objective) specifications from related charms.
-      Sloth will convert these specifications into Prometheus recording and alerting rules.
 
 provides:
   grafana-dashboard:
@@ -88,6 +82,12 @@ provides:
     interface: prometheus_scrape
     description: |
       Endpoint to allow prometheus metrics to be scraped from this sloth instance.
+  slos:
+    optional: true
+    interface: sloth
+    description: |
+      Receives SLO (Service Level Objective) specifications from related charms.
+      Sloth will convert these specifications into Prometheus recording and alerting rules.
 
 peers:
   sloth-peers:
