@@ -72,10 +72,10 @@ class SlothOperatorCharm(ops.CharmBase):
         self.slo_requirer = SlothRequirer(self)
 
         # Workloads
+        self._sloth_container = self.unit.get_container(Sloth.container_name)
         self.sloth = Sloth(
-            container=self.unit.get_container(Sloth.container_name),
+            container=self._sloth_container,
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
-            additional_slos=[],  # Will be updated during reconcile
         )
 
         # event handlers
@@ -110,20 +110,16 @@ class SlothOperatorCharm(ops.CharmBase):
     # RECONCILERS
     def reconcile(self):
         """Unconditional logic to run regardless of the event we are processing."""
-        # Update SLOs from relations
-        self.sloth._additional_slos = self.slo_requirer.get_slos()
-
         if self.charm_tracing.is_ready() and (
             endpoint := self.charm_tracing.get_endpoint("otlp_http")
         ):
             ops_tracing.set_destination(
                 url=endpoint + "/v1/traces",
-                ca=None,  # TLS not implemented for Sloth
+                ca=None,  # TLS not implemented (yet?) for Sloth
             )
 
-        # Reconcile each workload independently - failures in one shouldn't block others
         try:
-            self.sloth.reconcile()
+            self.sloth.reconcile(self.slo_requirer.get_slos())
         except Exception as e:
             logger.error(f"Sloth reconciliation failed: {e}")
 
@@ -138,7 +134,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
     def _update_alert_rules(self):
         """Update alert rules from generated SLO specifications."""
-        if not self.sloth._container.can_connect():
+        if not self._sloth_container.can_connect():
             return
 
         if not self.unit.is_leader():
@@ -187,18 +183,12 @@ class SlothOperatorCharm(ops.CharmBase):
                 )
             )
 
-        containers_not_ready = [
-            workload.container_name
-            for workload in {Sloth}
-            if not self.unit.get_container(workload.container_name).can_connect()
-        ]
-
-        if containers_not_ready:
+        if not self._sloth_container.can_connect():
             event.add_status(
-                ops.WaitingStatus(f"Waiting for containers: {containers_not_ready}...")
+                ops.WaitingStatus("Waiting for workload container...")
             )
         else:
-            self.unit.set_workload_version(self.sloth.version)
+            self.unit.set_workload_version(self.sloth.version())
 
         event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
 

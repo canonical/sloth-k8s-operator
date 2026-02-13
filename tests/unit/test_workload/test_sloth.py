@@ -43,13 +43,13 @@ def _mock_container_exec_return_value(sloth, value):
 @pytest.mark.parametrize("version", ("0.11.0", "0.10.0"))
 def test_fetch_version_valid(sloth, version):
     _mock_container_exec_return_value(sloth, f"sloth version {version}")
-    assert sloth.version == version
+    assert sloth.version() == version
 
 
 @pytest.mark.parametrize("version", ("", "booboontu", "42"))
 def test_fetch_version_invalid(sloth, version):
     _mock_container_exec_return_value(sloth, f"sloth version {version}")
-    assert sloth.version == ""
+    assert sloth.version() == ""
 
 
 def test_reconcile_slo_specs_creates_directories(sloth):
