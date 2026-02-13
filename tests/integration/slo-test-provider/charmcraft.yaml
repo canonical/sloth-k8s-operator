@@ -44,7 +44,7 @@ config:
       description: Name of the service in the SLO spec
       type: string
       default: "test-service"
-    slo-objective:
+    slo-requests-availability:
       description: SLO objective percentage (e.g., 99.9)
       type: string
       default: "99.9"

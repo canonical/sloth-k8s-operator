@@ -40,7 +40,7 @@ class SLOTestProviderCharm(ops.CharmBase):
     def _provide_slo(self):
         """Provide SLO specification to Sloth."""
         service_name = self.config.get("slo-service-name", "test-service")
-        objective = float(self.config.get("slo-objective", "99.9"))
+        objective = float(self.config.get("slo-requests-availability", "99.9"))
 
         # Note: New library expects YAML strings, not dictionaries
         slo_yaml = f"""version: prometheus/v1

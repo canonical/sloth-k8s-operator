@@ -40,7 +40,7 @@ def test_setup_full_cos_with_provider(juju: Juju, sloth_charm, sloth_resources, 
         TEST_PROVIDER,
         config={
             "slo-service-name": "test-service",
-            "slo-objective": "99.5",
+            "slo-requests-availability": "99.5",
         },
         resources={"test-app-image": "ubuntu:22.04"},
     )
@@ -231,7 +231,7 @@ def test_provider_slo_rules_content(juju: Juju):
 def test_dynamic_slo_update(juju: Juju):
     """Test that changes to SLO configuration propagate to Prometheus rules."""
     # Change the SLO objective
-    juju.config(TEST_PROVIDER, {"slo-objective": "99.9"})
+    juju.config(TEST_PROVIDER, {"slo-requests-availability": "99.9"})
 
     # Wait for the update to propagate through the entire chain
     # provider config → provider relation update → sloth generate → prometheus reload
