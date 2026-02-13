@@ -78,3 +78,8 @@ SLIs
 slos
 Hardcoding
 hardcoded
+databag
+databags
+unittest
+Pyrra
+lockfile
