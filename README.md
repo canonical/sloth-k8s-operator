@@ -83,6 +83,8 @@ juju config sloth-k8s slo-period=7d
 Custom SLO period windows configuration in YAML format. This allows you to define custom
 alerting windows that override Sloth's default alert window calculations.
 
+The charm validates the configuration against the [Sloth AlertWindows specification](https://github.com/slok/sloth/tree/main/pkg/prometheus/alertwindows/v1) to ensure correctness. Invalid configurations are logged as errors and ignored.
+
 When provided, this configuration defines:
 - **Quick page alerts**: Fast detection of significant error budget consumption
 - **Slow page alerts**: Detection of sustained error budget consumption
@@ -120,9 +122,9 @@ spec:
 
 **Configuration parameters explained:**
 - `sloPeriod`: Must match your `slo-period` config value
-- `errorBudgetPercent`: Percentage of error budget consumed to trigger alert
-- `shortWindow`: Shorter time window for detecting transient issues
-- `longWindow`: Longer time window for overall trend
+- `errorBudgetPercent`: Percentage of error budget consumed to trigger alert (0-100)
+- `shortWindow`: Shorter time window for detecting transient issues (e.g., "5m", "1h")
+- `longWindow`: Longer time window for overall trend (e.g., "6h", "1d")
 
 **Note**: The default 30d and 28d periods use Google's SRE Workbook recommended parameters.
 Only configure custom windows if you need different alerting thresholds or are using

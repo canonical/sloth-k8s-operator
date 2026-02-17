@@ -52,14 +52,28 @@ When provided, this configuration defines:
 - **Slow ticket alerts**: Long-term trend monitoring
 
 The YAML must follow the Sloth AlertWindows specification (``apiVersion: sloth.slok.dev/v1``,
-``kind: AlertWindows``).
+``kind: AlertWindows``). The charm validates the configuration against the AlertWindows spec
+to ensure all required fields are present and correctly formatted.
+
+**Validation:**
+
+The charm validates:
+
+- ``kind`` must be "AlertWindows"
+- ``apiVersion`` must be "sloth.slok.dev/v1"
+- ``sloPeriod`` must be a valid duration (e.g., "7d", "30d")
+- All time windows (``shortWindow``, ``longWindow``) must use valid Prometheus duration format
+- ``errorBudgetPercent`` must be between 0 and 100
+- All required fields (page.quick, page.slow, ticket.quick, ticket.slow) must be present
+
+Invalid configurations are logged as errors and ignored.
 
 **Configuration Parameters:**
 
-- ``sloPeriod``: Must match your ``slo-period`` config value
-- ``errorBudgetPercent``: Percentage of error budget consumed to trigger alert
-- ``shortWindow``: Shorter time window for detecting transient issues
-- ``longWindow``: Longer time window for overall trend
+- ``sloPeriod``: Must match your ``slo-period`` config value (e.g., "7d", "30d")
+- ``errorBudgetPercent``: Percentage of error budget consumed to trigger alert (0-100)
+- ``shortWindow``: Shorter time window for detecting transient issues (e.g., "5m", "30m")
+- ``longWindow``: Longer time window for overall trend (e.g., "1h", "6h")
 
 **Example (7-day SLO period):**
 
