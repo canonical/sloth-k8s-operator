@@ -9,7 +9,7 @@ import time
 
 import jubilant
 import pytest
-from jubilant import Juju
+from jubilant import Juju, TaskError
 
 from tests.integration.helpers import SLOTH
 
@@ -17,6 +17,22 @@ GRAFANA = "grafana"
 PROMETHEUS = "prometheus"
 TEST_PROVIDER = "slo-test-provider"
 TIMEOUT = 600
+PROMETHEUS_RULES_CMD = "curl -s http://localhost:9090/api/v1/rules"
+
+
+def _fetch_prometheus_rules(juju: Juju, max_attempts: int, delay: int = 5) -> dict:
+    """Fetch Prometheus rules with retries to handle transient errors."""
+    last_error: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            result = juju.exec(PROMETHEUS_RULES_CMD, unit=f"{PROMETHEUS}/0")
+            return json.loads(result.stdout)
+        except TaskError as exc:
+            last_error = exc
+            if attempt < max_attempts - 1:
+                time.sleep(delay)
+
+    raise AssertionError("Failed to fetch Prometheus rules after retries") from last_error
 
 
 @pytest.mark.setup
@@ -86,9 +102,12 @@ def test_sloth_generates_builtin_prometheus_rules(juju: Juju):
     prometheus_groups = []
 
     for attempt in range(max_attempts):
-        cmd = 'curl -s http://localhost:9090/api/v1/rules'
-        result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-        rules_data = json.loads(result.stdout)
+        try:
+            rules_data = _fetch_prometheus_rules(juju, max_attempts=1)
+        except AssertionError:
+            if attempt < max_attempts - 1:
+                time.sleep(5)
+            continue
 
         assert "data" in rules_data, "Prometheus should return rules data"
         groups = rules_data["data"]["groups"]
@@ -131,9 +150,12 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
     test_service_groups = []
 
     for attempt in range(max_attempts):
-        cmd = 'curl -s http://localhost:9090/api/v1/rules'
-        result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-        rules_data = json.loads(result.stdout)
+        try:
+            rules_data = _fetch_prometheus_rules(juju, max_attempts=1)
+        except AssertionError:
+            if attempt < max_attempts - 1:
+                time.sleep(5)
+            continue
 
         assert "data" in rules_data, "Prometheus should return rules data"
         groups = rules_data["data"]["groups"]
@@ -167,9 +189,7 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
 
 def test_provider_slo_rules_content(juju: Juju):
     """Verify the actual content of the generated rules matches the SLO spec."""
-    cmd = 'curl -s http://localhost:9090/api/v1/rules'
-    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-    rules_data = json.loads(result.stdout)
+    rules_data = _fetch_prometheus_rules(juju, max_attempts=12)
 
     groups = rules_data["data"]["groups"]
 
@@ -238,9 +258,7 @@ def test_dynamic_slo_update(juju: Juju):
     time.sleep(30)
 
     # Verify rules still exist (may have slightly different objectives)
-    cmd = 'curl -s http://localhost:9090/api/v1/rules'
-    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-    rules_data = json.loads(result.stdout)
+    rules_data = _fetch_prometheus_rules(juju, max_attempts=12)
 
     groups = rules_data["data"]["groups"]
     # Note: Prometheus transforms hyphens to underscores in group names
