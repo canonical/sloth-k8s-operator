@@ -191,6 +191,12 @@ class SlothOperatorCharm(ops.CharmBase):
         else:
             self.unit.set_workload_version(self.sloth.version())
 
+        # Check if SLO period configuration is valid
+        is_valid, error_msg = self.sloth.is_config_valid()
+        if not is_valid:
+            event.add_status(ops.BlockedStatus(error_msg))
+            return
+
         event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
 
     def _on_reconcile_event(self, event: ops.EventBase):

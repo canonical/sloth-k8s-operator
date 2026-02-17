@@ -28,10 +28,18 @@ compliance is measured. Common values include:
 - ``28d`` - 28 days (4-week rolling window)
 - ``7d`` - 7 days (for shorter-term SLOs)
 
+**Important:** Sloth only has built-in alert window defaults for ``30d`` and ``28d`` periods.
+If you use any other period (like ``7d``), you **must** also configure ``slo-period-windows``,
+otherwise the charm will go to a blocked state.
+
 **Example:**
 
 .. code-block:: bash
 
+    # This works - 30d has built-in defaults
+    juju config sloth-k8s slo-period=30d
+
+    # This requires slo-period-windows configuration
     juju config sloth-k8s slo-period=7d
 
 slo-period-windows
@@ -41,10 +49,16 @@ slo-period-windows
 
 **Default:** ``""`` (empty, uses Sloth defaults)
 
+**Required:** Yes, when using ``slo-period`` other than ``30d`` or ``28d``
+
 **Description:**
 
 Custom SLO period windows configuration in YAML format. This allows you to define custom
 alerting windows that override Sloth's default alert window calculations.
+
+**Required when:** Using a ``slo-period`` other than ``30d`` or ``28d``, as Sloth only has
+built-in defaults for those two periods. The charm will go to a blocked state if you use
+a custom period without providing this configuration.
 
 When provided, this configuration defines:
 

@@ -47,6 +47,23 @@ class Sloth:
         self._slo_period = slo_period
         self._slo_period_windows = slo_period_windows
 
+    def is_config_valid(self) -> typing.Tuple[bool, str]:
+        """Validate that the SLO period configuration is consistent.
+
+        Returns:
+            Tuple of (is_valid, error_message). If valid, error_message is empty.
+        """
+        # Sloth has built-in defaults only for 30d and 28d periods
+        # For any other period, custom windows must be provided
+        if self._slo_period not in ("30d", "28d"):
+            if not self._slo_period_windows:
+                return (
+                    False,
+                    f"Custom slo-period '{self._slo_period}' requires slo-period-windows configuration. "
+                    "Sloth only has built-in defaults for '30d' and '28d' periods.",
+                )
+        return (True, "")
+
     def reconcile(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Unconditional control logic."""
         if self._container.can_connect():
@@ -58,13 +75,20 @@ class Sloth:
 
     def _reconcile_slo_period_windows(self):
         """Configure custom SLO period windows if provided."""
+        windows_path = f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
+
         if not self._slo_period_windows:
-            # No custom windows configured, use defaults
+            # No custom windows configured
+            # Clean up any previously configured windows
+            if self._container.exists(windows_path):
+                try:
+                    self._container.remove_path(windows_path)
+                    logger.info("Removed custom SLO period windows configuration")
+                except Exception as e:
+                    logger.warning(f"Failed to remove custom period windows file: {e}")
             return
 
         # Write the custom period windows configuration
-        windows_path = f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
-
         current_content = ""
         if self._container.exists(windows_path):
             current_content = self._container.pull(windows_path).read()

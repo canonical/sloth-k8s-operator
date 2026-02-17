@@ -594,3 +594,90 @@ spec:
     assert not sloth._container.push.called
 
 
+def test_is_config_valid_with_default_30d():
+    """Test that config is valid with default 30d period."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="30d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_is_config_valid_with_28d():
+    """Test that config is valid with 28d period (has built-in defaults)."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="28d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_is_config_valid_with_7d_no_windows():
+    """Test that config is invalid with 7d period and no custom windows."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="7d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert not is_valid
+    assert "7d" in error_msg
+    assert "slo-period-windows" in error_msg
+    assert "30d" in error_msg
+    assert "28d" in error_msg
+
+
+def test_is_config_valid_with_7d_and_windows():
+    """Test that config is valid with 7d period and custom windows."""
+    container_mock = MagicMock()
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+"""
+    sloth = Sloth(container=container_mock, slo_period="7d", slo_period_windows=custom_windows)
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_reconcile_slo_period_windows_cleanup_when_removed(sloth):
+    """Test that custom windows file is removed when config is cleared."""
+    sloth._slo_period_windows = ""
+    sloth._container.exists.return_value = True
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should check if file exists
+    sloth._container.exists.assert_called_with(f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml")
+
+    # Should remove the file
+    sloth._container.remove_path.assert_called_once_with(
+        f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
+    )
+
+    # Should not push any new content
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_no_cleanup_when_not_exists(sloth):
+    """Test that no cleanup happens when file doesn't exist."""
+    sloth._slo_period_windows = ""
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should check if file exists
+    sloth._container.exists.assert_called_with(f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml")
+
+    # Should not try to remove file
+    assert not sloth._container.remove_path.called
+
+    # Should not push any new content
+    assert not sloth._container.push.called
+

@@ -194,7 +194,8 @@ def test_multiple_slo_relations(context, base_state):
 
 def test_config_slo_period(context, base_state):
     """Test that slo-period config option is respected."""
-    state = replace(base_state, config={"slo-period": "7d"})
+    # Use 28d which has built-in defaults
+    state = replace(base_state, config={"slo-period": "28d"})
 
     state_out = context.run(context.on.config_changed(), state)
     assert isinstance(state_out.unit_status, ActiveStatus)
@@ -300,3 +301,73 @@ def test_peer_relation_required(context, sloth_container):
     state_out = context.run(context.on.start(), state)
     # May be waiting or active depending on implementation
     assert state_out.unit_status is not None
+
+
+def test_config_7d_period_without_windows_blocks(context, base_state):
+    """Test that 7d period without custom windows results in blocked status."""
+    from ops.model import BlockedStatus
+
+    state = replace(base_state, config={"slo-period": "7d"})
+
+    state_out = context.run(context.on.config_changed(), state)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "7d" in state_out.unit_status.message
+    assert "slo-period-windows" in state_out.unit_status.message
+
+
+def test_config_7d_period_with_windows_active(context, base_state):
+    """Test that 7d period with custom windows is active."""
+    from ops.model import ActiveStatus
+
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+    state = replace(base_state, config={"slo-period": "7d", "slo-period-windows": custom_windows})
+
+    state_out = context.run(context.on.config_changed(), state)
+
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_30d_period_without_windows_active(context, base_state):
+    """Test that 30d period without custom windows is active (has built-in defaults)."""
+    from ops.model import ActiveStatus
+
+    state = replace(base_state, config={"slo-period": "30d"})
+
+    state_out = context.run(context.on.config_changed(), state)
+
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_config_28d_period_without_windows_active(context, base_state):
+    """Test that 28d period without custom windows is active (has built-in defaults)."""
+    from ops.model import ActiveStatus
+
+    state = replace(base_state, config={"slo-period": "28d"})
+
+    state_out = context.run(context.on.config_changed(), state)
+
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
