@@ -7,6 +7,8 @@ These models map to the AlertWindows spec from:
 https://github.com/slok/sloth/tree/main/pkg/prometheus/alertwindows/v1
 """
 
+import re
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -47,8 +49,6 @@ class Window(BaseModel):
             raise ValueError("Duration cannot be empty")
 
         # Check if it matches the pattern: number + time unit
-        import re
-
         pattern = r"^\d+(\.\d+)?[smhdwy]$"
         if not re.match(pattern, v):
             raise ValueError(
@@ -73,6 +73,10 @@ class PageWindow(QuickSlowWindow):
     """Configuration for page alerting windows.
 
     Page alerts are high-priority alerts that typically require immediate attention.
+
+    Note: This class is a separate type from QuickSlowWindow to match the Sloth
+    AlertWindows spec structure, providing type clarity in the YAML configuration.
+    See: https://github.com/slok/sloth/blob/main/pkg/prometheus/alertwindows/v1/v1.go
     """
 
     pass
@@ -82,6 +86,10 @@ class TicketWindow(QuickSlowWindow):
     """Configuration for ticket alerting windows.
 
     Ticket alerts are lower-priority alerts that typically create tracking tickets.
+
+    Note: This class is a separate type from QuickSlowWindow to match the Sloth
+    AlertWindows spec structure, providing type clarity in the YAML configuration.
+    See: https://github.com/slok/sloth/blob/main/pkg/prometheus/alertwindows/v1/v1.go
     """
 
     pass
@@ -104,8 +112,6 @@ class Spec(BaseModel):
         """Validate SLO period format."""
         if not v:
             raise ValueError("SLO period cannot be empty")
-
-        import re
 
         pattern = r"^\d+(\.\d+)?[smhdwy]$"
         if not re.match(pattern, v):
