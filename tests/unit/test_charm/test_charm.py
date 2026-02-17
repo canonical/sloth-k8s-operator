@@ -200,6 +200,24 @@ def test_config_slo_period(context, base_state):
     assert isinstance(state_out.unit_status, ActiveStatus)
 
 
+def test_config_slo_period_windows(context, base_state):
+    """Test that slo-period-windows config option is respected."""
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+"""
+    state = replace(base_state, config={"slo-period": "7d", "slo-period-windows": custom_windows})
+
+    state_out = context.run(context.on.config_changed(), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
 def test_ingress_relation(context, base_state):
     """Test ingress relation integration."""
     ingress_relation = Relation(

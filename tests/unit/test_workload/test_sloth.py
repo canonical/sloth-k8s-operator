@@ -16,6 +16,7 @@ def sloth():
     return Sloth(
         container=container_mock,
         slo_period="30d",
+        slo_period_windows="",
     )
 
 
@@ -301,6 +302,134 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
     # Should only pull the yaml file
     assert sloth._container.pull.call_count == 1
     assert "prometheus-availability" in sloth._container.pull.call_args[0][0]
+
+
+def test_reconcile_slo_period_windows_not_configured(sloth):
+    """Test that no period windows are written when not configured."""
+    sloth._slo_period_windows = ""
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write files
+    assert not sloth._container.make_dir.called
+
+
+def test_reconcile_slo_period_windows_configured(sloth):
+    """Test that custom period windows are written when configured."""
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    from sloth import SLO_PERIOD_WINDOWS_DIR
+
+    sloth._slo_period_windows = custom_windows
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should create directory
+    sloth._container.make_dir.assert_called_with(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
+
+    # Should write the config file
+    sloth._container.push.assert_called_once()
+    push_args = sloth._container.push.call_args[0]
+    assert SLO_PERIOD_WINDOWS_DIR in push_args[0]
+    assert push_args[1] == custom_windows
+
+
+def test_reconcile_slo_period_windows_invalid_yaml(sloth):
+    """Test that invalid YAML is not written and logs an error."""
+    invalid_yaml = "invalid: yaml: {{{"
+
+    sloth._slo_period_windows = invalid_yaml
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not write the file
+    assert not sloth._container.push.called
+
+
+def test_generate_rules_with_default_period(sloth):
+    """Test that sloth generate is called with default period."""
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "30d"
+    sloth._slo_period_windows = ""
+
+    from sloth import SLO_SPECS_DIR
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called with default period
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--default-slo-period" in args
+    assert "30d" in args
+
+
+def test_generate_rules_with_custom_period_windows(sloth):
+    """Test that sloth generate is called with custom period windows path."""
+    from sloth import SLO_PERIOD_WINDOWS_DIR, SLO_SPECS_DIR
+
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "7d"
+    sloth._slo_period_windows = "custom yaml config"
+    sloth._container.exists.return_value = True
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called with period windows path
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--default-slo-period" in args
+    assert "7d" in args
+    assert "--slo-period-windows-path" in args
+    assert SLO_PERIOD_WINDOWS_DIR in args
+
+
+def test_generate_rules_without_custom_period_windows(sloth):
+    """Test that sloth generate is not called with period windows path when not configured."""
+    from sloth import SLO_SPECS_DIR
+
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "30d"
+    sloth._slo_period_windows = ""
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called without period windows path
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--slo-period-windows-path" not in args
 
 
 

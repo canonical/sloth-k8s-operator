@@ -76,6 +76,7 @@ class SlothOperatorCharm(ops.CharmBase):
         self.sloth = Sloth(
             container=self._sloth_container,
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
+            slo_period_windows=typing.cast(str, self.config.get("slo-period-windows", "")),
         )
 
         # event handlers

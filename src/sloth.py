@@ -23,6 +23,7 @@ DEFAULT_BIN_PATH = "/usr/local/bin/sloth"
 # Paths for SLO specs and generated rules in the container
 SLO_SPECS_DIR = "/etc/sloth/slos"
 GENERATED_RULES_DIR = "/etc/sloth/rules"
+SLO_PERIOD_WINDOWS_DIR = "/etc/sloth/windows"
 
 
 class Sloth:
@@ -37,17 +38,46 @@ class Sloth:
         self,
         container: Container,
         slo_period: str = "30d",
+        slo_period_windows: str = "",
     ):
         self._container = container
         self._slo_period = slo_period
+        self._slo_period_windows = slo_period_windows
 
     def reconcile(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Unconditional control logic."""
         if self._container.can_connect():
+            self._reconcile_slo_period_windows()
             self._reconcile_slo_specs(additional_slos)
             # Note: sloth is not a long-running service, so we don't need to manage it via Pebble
             # It's a generator tool that creates rules and exits
             # self._reconcile_sloth_service()
+
+    def _reconcile_slo_period_windows(self):
+        """Configure custom SLO period windows if provided."""
+        if not self._slo_period_windows:
+            # No custom windows configured, use defaults
+            return
+
+        # Create directory for period windows
+        if not self._container.exists(SLO_PERIOD_WINDOWS_DIR):
+            self._container.make_dir(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
+
+        # Write the custom period windows configuration
+        windows_path = f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
+
+        current_content = ""
+        if self._container.exists(windows_path):
+            current_content = self._container.pull(windows_path).read()
+
+        if current_content != self._slo_period_windows:
+            try:
+                # Validate it's valid YAML before writing
+                yaml.safe_load(self._slo_period_windows)
+                self._container.push(windows_path, self._slo_period_windows, make_dirs=True)
+                logger.info("Updated custom SLO period windows configuration")
+            except yaml.YAMLError as e:
+                logger.error(f"Invalid YAML in slo-period-windows config: {e}")
 
     def _reconcile_slo_specs(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Create SLO specifications and generate Prometheus rules."""
@@ -151,11 +181,18 @@ class Sloth:
         output_path = f"{GENERATED_RULES_DIR}/{slo_filename}.yaml"
 
         try:
+            # Build sloth generate command
+            cmd = [DEFAULT_BIN_PATH, "generate", "-i", slo_path]
+
+            # Add default SLO period
+            cmd.extend(["--default-slo-period", self._slo_period])
+
+            # Add custom period windows path if configured
+            if self._slo_period_windows and self._container.exists(SLO_PERIOD_WINDOWS_DIR):
+                cmd.extend(["--slo-period-windows-path", SLO_PERIOD_WINDOWS_DIR])
+
             # Run sloth generate command
-            process = self._container.exec(
-                [DEFAULT_BIN_PATH, "generate", "-i", slo_path],
-                timeout=30,
-            )
+            process = self._container.exec(cmd, timeout=30)
             stdout, stderr = process.wait_output()
 
             # Log stderr if present (sloth may have warnings/errors)
