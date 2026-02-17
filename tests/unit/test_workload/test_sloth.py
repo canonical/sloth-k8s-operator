@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from sloth import GENERATED_RULES_DIR, SLO_SPECS_DIR, Sloth
+from sloth import GENERATED_RULES_DIR, SLO_PERIOD_WINDOWS_DIR, SLO_SPECS_DIR, Sloth
 
 
 @pytest.fixture
@@ -341,8 +341,6 @@ spec:
       longWindow: 3d
 """
 
-    from sloth import SLO_PERIOD_WINDOWS_DIR
-
     sloth._slo_period_windows = custom_windows
     sloth._container.exists.return_value = False
 
@@ -380,8 +378,6 @@ def test_generate_rules_with_default_period(sloth):
     sloth._slo_period = "30d"
     sloth._slo_period_windows = ""
 
-    from sloth import SLO_SPECS_DIR
-
     sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
 
     # Verify sloth generate was called with default period
@@ -394,8 +390,6 @@ def test_generate_rules_with_default_period(sloth):
 
 def test_generate_rules_with_custom_period_windows(sloth):
     """Test that sloth generate is called with custom period windows path."""
-    from sloth import SLO_PERIOD_WINDOWS_DIR, SLO_SPECS_DIR
-
     mock_process = MagicMock()
     mock_process.wait_output.return_value = ("generated rules", "")
     sloth._container.exec.return_value = mock_process
@@ -417,8 +411,6 @@ def test_generate_rules_with_custom_period_windows(sloth):
 
 def test_generate_rules_without_custom_period_windows(sloth):
     """Test that sloth generate is not called with period windows path when not configured."""
-    from sloth import SLO_SPECS_DIR
-
     mock_process = MagicMock()
     mock_process.wait_output.return_value = ("generated rules", "")
     sloth._container.exec.return_value = mock_process
