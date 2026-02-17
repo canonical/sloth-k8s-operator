@@ -19,6 +19,52 @@ TEST_PROVIDER = "slo-test-provider"
 TIMEOUT = 600
 
 
+def _prometheus_rules_with_retries(juju: Juju, max_attempts: int = 5, delay: int = 5):
+    """Call Prometheus HTTP API via `juju.exec` with retries handling TaskError.
+
+    Returns parsed JSON rules data on success. Raises last exception on failure.
+    """
+    cmd = 'curl -s http://localhost:9090/api/v1/rules'
+
+    # Resolve TaskError type from jubilant if available
+    TaskError = None
+    if hasattr(jubilant, "TaskError"):
+        TaskError = getattr(jubilant, "TaskError")
+    else:
+        errs = getattr(jubilant, "errors", None)
+        if errs is not None and hasattr(errs, "TaskError"):
+            TaskError = getattr(errs, "TaskError")
+
+    last_exc = None
+    for attempt in range(max_attempts):
+        try:
+            result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+            rules_data = json.loads(result.stdout)
+
+            # Basic validation before returning
+            if "data" in rules_data and "groups" in rules_data["data"]:
+                return rules_data
+            # Treat malformed responses as transient
+            last_exc = AssertionError("Prometheus returned unexpected rules payload")
+        except Exception as e:  # noqa: BLE001 - broad catch to inspect TaskError
+            last_exc = e
+            if TaskError is not None and isinstance(e, TaskError):
+                # Transient juju task failure; retry after delay
+                if attempt < max_attempts - 1:
+                    time.sleep(delay)
+                    continue
+                # else fall through to raise after loop
+            else:
+                # Non-TaskError unexpected exception -> re-raise
+                raise
+
+        if attempt < max_attempts - 1:
+            time.sleep(delay)
+
+    # Out of attempts
+    raise last_exc
+
+
 @pytest.mark.setup
 def test_setup_full_cos_with_provider(juju: Juju, sloth_charm, sloth_resources, slo_provider_charm):
     """Deploy complete stack: Sloth, Prometheus, Grafana, and SLO provider."""
@@ -87,7 +133,25 @@ def test_sloth_generates_builtin_prometheus_rules(juju: Juju):
 
     for attempt in range(max_attempts):
         cmd = 'curl -s http://localhost:9090/api/v1/rules'
-        result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+        # Call juju.exec and handle transient TaskError by retrying outer loop
+        try:
+            result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+        except Exception as e:  # noqa: BLE001 - inspect for TaskError
+            TaskError = None
+            if hasattr(jubilant, "TaskError"):
+                TaskError = getattr(jubilant, "TaskError")
+            else:
+                errs = getattr(jubilant, "errors", None)
+                if errs is not None and hasattr(errs, "TaskError"):
+                    TaskError = getattr(errs, "TaskError")
+
+            if TaskError is not None and isinstance(e, TaskError):
+                if attempt < max_attempts - 1:
+                    time.sleep(5)
+                    continue
+                raise
+            raise
+
         rules_data = json.loads(result.stdout)
 
         assert "data" in rules_data, "Prometheus should return rules data"
@@ -132,7 +196,25 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
 
     for attempt in range(max_attempts):
         cmd = 'curl -s http://localhost:9090/api/v1/rules'
-        result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+        # Call juju.exec and handle transient TaskError by retrying outer loop
+        try:
+            result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+        except Exception as e:  # noqa: BLE001 - inspect for TaskError
+            TaskError = None
+            if hasattr(jubilant, "TaskError"):
+                TaskError = getattr(jubilant, "TaskError")
+            else:
+                errs = getattr(jubilant, "errors", None)
+                if errs is not None and hasattr(errs, "TaskError"):
+                    TaskError = getattr(errs, "TaskError")
+
+            if TaskError is not None and isinstance(e, TaskError):
+                if attempt < max_attempts - 1:
+                    time.sleep(5)
+                    continue
+                raise
+            raise
+
         rules_data = json.loads(result.stdout)
 
         assert "data" in rules_data, "Prometheus should return rules data"
@@ -167,9 +249,7 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
 
 def test_provider_slo_rules_content(juju: Juju):
     """Verify the actual content of the generated rules matches the SLO spec."""
-    cmd = 'curl -s http://localhost:9090/api/v1/rules'
-    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-    rules_data = json.loads(result.stdout)
+    rules_data = _prometheus_rules_with_retries(juju, max_attempts=10, delay=5)
 
     groups = rules_data["data"]["groups"]
 
@@ -238,9 +318,7 @@ def test_dynamic_slo_update(juju: Juju):
     time.sleep(30)
 
     # Verify rules still exist (may have slightly different objectives)
-    cmd = 'curl -s http://localhost:9090/api/v1/rules'
-    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
-    rules_data = json.loads(result.stdout)
+    rules_data = _prometheus_rules_with_retries(juju, max_attempts=10, delay=5)
 
     groups = rules_data["data"]["groups"]
     # Note: Prometheus transforms hyphens to underscores in group names
