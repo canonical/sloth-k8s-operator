@@ -431,5 +431,3 @@ def test_generate_rules_without_custom_period_windows(sloth):
     assert "generate" in args
     assert "--slo-period-windows-path" not in args
 
-
-
