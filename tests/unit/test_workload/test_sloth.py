@@ -312,6 +312,7 @@ def test_reconcile_slo_period_windows_not_configured(sloth):
 
     # Should not create directory or write files
     assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
 
 
 def test_reconcile_slo_period_windows_configured(sloth):
@@ -347,7 +348,7 @@ spec:
 
     sloth._reconcile_slo_period_windows()
 
-    # Should create directory
+    # Should create directory (after validation)
     sloth._container.make_dir.assert_called_with(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
 
     # Should write the config file
@@ -366,7 +367,8 @@ def test_reconcile_slo_period_windows_invalid_yaml(sloth):
 
     sloth._reconcile_slo_period_windows()
 
-    # Should not write the file
+    # Should not create directory or write the file when YAML is invalid
+    assert not sloth._container.make_dir.called
     assert not sloth._container.push.called
 
 

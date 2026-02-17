@@ -59,10 +59,6 @@ class Sloth:
             # No custom windows configured, use defaults
             return
 
-        # Create directory for period windows
-        if not self._container.exists(SLO_PERIOD_WINDOWS_DIR):
-            self._container.make_dir(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
-
         # Write the custom period windows configuration
         windows_path = f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
 
@@ -74,6 +70,11 @@ class Sloth:
             try:
                 # Validate it's valid YAML before writing
                 yaml.safe_load(self._slo_period_windows)
+
+                # Only create directory after validation succeeds
+                if not self._container.exists(SLO_PERIOD_WINDOWS_DIR):
+                    self._container.make_dir(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
+
                 self._container.push(windows_path, self._slo_period_windows, make_dirs=True)
                 logger.info("Updated custom SLO period windows configuration")
             except yaml.YAMLError as e:
