@@ -12,6 +12,9 @@ import ops.pebble
 import yaml
 from ops import Container
 from ops.pebble import Layer
+from pydantic import ValidationError
+
+from alert_windows_models import AlertWindows
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +71,11 @@ class Sloth:
 
         if current_content != self._slo_period_windows:
             try:
-                # Validate it's valid YAML before writing
-                yaml.safe_load(self._slo_period_windows)
+                # Parse YAML
+                parsed_yaml = yaml.safe_load(self._slo_period_windows)
+
+                # Validate against AlertWindows spec using Pydantic
+                AlertWindows.model_validate(parsed_yaml)
 
                 # Only create directory after validation succeeds
                 if not self._container.exists(SLO_PERIOD_WINDOWS_DIR):
@@ -79,6 +85,10 @@ class Sloth:
                 logger.info("Updated custom SLO period windows configuration")
             except yaml.YAMLError as e:
                 logger.error(f"Invalid YAML in slo-period-windows config: {e}")
+            except ValidationError as e:
+                logger.error(
+                    f"Invalid AlertWindows specification in slo-period-windows config: {e}"
+                )
 
     def _reconcile_slo_specs(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Create SLO specifications and generate Prometheus rules."""

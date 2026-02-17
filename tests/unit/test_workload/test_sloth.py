@@ -425,3 +425,172 @@ def test_generate_rules_without_custom_period_windows(sloth):
     assert "generate" in args
     assert "--slo-period-windows-path" not in args
 
+
+def test_reconcile_slo_period_windows_invalid_spec_missing_fields(sloth):
+    """Test that incomplete AlertWindows spec is rejected."""
+    # Missing 'ticket' field
+    incomplete_spec = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+"""
+
+    sloth._slo_period_windows = incomplete_spec
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when spec is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_kind(sloth):
+    """Test that AlertWindows with wrong kind is rejected."""
+    wrong_kind = """apiVersion: sloth.slok.dev/v1
+kind: WrongKind
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = wrong_kind
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when kind is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_api_version(sloth):
+    """Test that AlertWindows with wrong apiVersion is rejected."""
+    wrong_api_version = """apiVersion: wrong/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = wrong_api_version
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when apiVersion is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_duration_format(sloth):
+    """Test that AlertWindows with invalid duration format is rejected."""
+    invalid_duration = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: invalid
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = invalid_duration
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when duration format is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_error_budget_percent(sloth):
+    """Test that AlertWindows with invalid errorBudgetPercent is rejected."""
+    invalid_percent = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 150
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = invalid_percent
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when errorBudgetPercent is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
