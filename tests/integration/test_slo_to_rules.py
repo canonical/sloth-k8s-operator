@@ -6,10 +6,17 @@
 
 import json
 import time
+from typing import Callable
 
 import jubilant
 import pytest
 from jubilant import Juju, TaskError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 from tests.integration.helpers import SLOTH
 
@@ -18,21 +25,39 @@ PROMETHEUS = "prometheus"
 TEST_PROVIDER = "slo-test-provider"
 TIMEOUT = 600
 PROMETHEUS_RULES_CMD = "curl -s http://localhost:9090/api/v1/rules"
+PROMETHEUS_RULES_ATTEMPTS = 40
+PROMETHEUS_RULES_DELAY = 5
 
 
-def _fetch_prometheus_rules(juju: Juju, max_attempts: int, delay: int = 5) -> dict:
-    """Fetch Prometheus rules with retries to handle transient errors."""
-    last_error: Exception | None = None
-    for attempt in range(max_attempts):
-        try:
-            result = juju.exec(PROMETHEUS_RULES_CMD, unit=f"{PROMETHEUS}/0")
-            return json.loads(result.stdout)
-        except TaskError as exc:
-            last_error = exc
-            if attempt < max_attempts - 1:
-                time.sleep(delay)
+def _fetch_prometheus_rules(juju: Juju) -> dict:
+    """Fetch Prometheus rules once."""
+    result = juju.exec(PROMETHEUS_RULES_CMD, unit=f"{PROMETHEUS}/0")
+    return json.loads(result.stdout)
 
-    raise AssertionError("Failed to fetch Prometheus rules after retries") from last_error
+
+@retry(
+    stop=stop_after_attempt(PROMETHEUS_RULES_ATTEMPTS),
+    wait=wait_fixed(PROMETHEUS_RULES_DELAY),
+    retry=retry_if_exception_type((TaskError, AssertionError, KeyError, json.JSONDecodeError)),
+    reraise=True,
+)
+def _wait_for_prometheus_groups(
+    juju: Juju,
+    group_filter: Callable[[dict], bool],
+    *,
+    min_count: int = 1,
+) -> list[dict]:
+    """Return matching rule groups once they appear in Prometheus."""
+    rules_data = _fetch_prometheus_rules(juju)
+    if "data" not in rules_data or "groups" not in rules_data["data"]:
+        raise AssertionError("Prometheus should return rules data")
+    groups = rules_data["data"]["groups"]
+    matches = [g for g in groups if group_filter(g)]
+    if len(matches) < min_count:
+        raise AssertionError(
+            f"Expected at least {min_count} Prometheus rule groups, found: {len(matches)}"
+        )
+    return matches
 
 
 @pytest.mark.setup
@@ -97,32 +122,11 @@ def test_slo_provider_relation_established(juju: Juju):
 
 def test_sloth_generates_builtin_prometheus_rules(juju: Juju):
     """Test that Sloth generates its built-in Prometheus availability SLO rules."""
-    # Wait for rules to propagate (with retry logic)
-    max_attempts = 30  # 30 * 5s = 150s max wait
-    prometheus_groups = []
-
-    for attempt in range(max_attempts):
-        try:
-            rules_data = _fetch_prometheus_rules(juju, max_attempts=1)
-        except AssertionError:
-            if attempt < max_attempts - 1:
-                time.sleep(5)
-            continue
-
-        assert "data" in rules_data, "Prometheus should return rules data"
-        groups = rules_data["data"]["groups"]
-
-        # Find Prometheus-related Sloth-generated rule groups
-        prometheus_groups = [
-            g for g in groups
-            if "sloth" in g["name"].lower() and "prometheus" in g["name"].lower()
-        ]
-
-        if len(prometheus_groups) >= 3:
-            break  # Found the built-in rules!
-
-        if attempt < max_attempts - 1:
-            time.sleep(5)
+    prometheus_groups = _wait_for_prometheus_groups(
+        juju,
+        lambda g: "sloth" in g["name"].lower() and "prometheus" in g["name"].lower(),
+        min_count=3,
+    )
 
     assert len(prometheus_groups) >= 3, \
         f"Should have at least 3 Prometheus SLO rule groups (alerts, meta, sli), found: {len(prometheus_groups)}"
@@ -146,32 +150,11 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
     """
     # Wait for provider SLO rules to appear in Prometheus
     # This may take longer as it involves: relation update → sloth generate → prometheus reload
-    max_attempts = 40  # 40 * 5s = 200s max wait (generous timeout for full flow)
-    test_service_groups = []
-
-    for attempt in range(max_attempts):
-        try:
-            rules_data = _fetch_prometheus_rules(juju, max_attempts=1)
-        except AssertionError:
-            if attempt < max_attempts - 1:
-                time.sleep(5)
-            continue
-
-        assert "data" in rules_data, "Prometheus should return rules data"
-        groups = rules_data["data"]["groups"]
-
-        # Find test-service related Sloth-generated rule groups
-        # Note: Prometheus transforms hyphens to underscores in group names
-        test_service_groups = [
-            g for g in groups
-            if "sloth" in g["name"].lower() and "test_service" in g["name"].lower()
-        ]
-
-        if len(test_service_groups) >= 3:
-            break  # Found the provider's rules!
-
-        if attempt < max_attempts - 1:
-            time.sleep(5)
+    test_service_groups = _wait_for_prometheus_groups(
+        juju,
+        lambda g: "sloth" in g["name"].lower() and "test_service" in g["name"].lower(),
+        min_count=3,
+    )
 
     # This is the key assertion - if this passes, the SLO-to-rules flow works!
     assert len(test_service_groups) >= 3, \
@@ -189,9 +172,11 @@ def test_sloth_generates_provider_slo_rules(juju: Juju):
 
 def test_provider_slo_rules_content(juju: Juju):
     """Verify the actual content of the generated rules matches the SLO spec."""
-    rules_data = _fetch_prometheus_rules(juju, max_attempts=12)
-
-    groups = rules_data["data"]["groups"]
+    groups = _wait_for_prometheus_groups(
+        juju,
+        lambda g: "sloth" in g["name"].lower() and "test_service" in g["name"].lower(),
+        min_count=3,
+    )
 
     # Find test-service SLI recordings group
     # Note: Prometheus transforms hyphens to underscores in group names
@@ -257,15 +242,12 @@ def test_dynamic_slo_update(juju: Juju):
     # provider config → provider relation update → sloth generate → prometheus reload
     time.sleep(30)
 
-    # Verify rules still exist (may have slightly different objectives)
-    rules_data = _fetch_prometheus_rules(juju, max_attempts=12)
-
-    groups = rules_data["data"]["groups"]
     # Note: Prometheus transforms hyphens to underscores in group names
-    test_service_groups = [
-        g for g in groups
-        if "sloth" in g["name"].lower() and "test_service" in g["name"].lower()
-    ]
+    test_service_groups = _wait_for_prometheus_groups(
+        juju,
+        lambda g: "sloth" in g["name"].lower() and "test_service" in g["name"].lower(),
+        min_count=3,
+    )
 
     # Rules should still be present after config change
     assert len(test_service_groups) >= 3, \
