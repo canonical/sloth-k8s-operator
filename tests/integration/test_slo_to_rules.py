@@ -14,8 +14,8 @@ from jubilant import Juju, TaskError
 from tenacity import (
     retry,
     retry_if_exception_type,
-    stop_after_attempt,
-    wait_fixed,
+    stop_after_delay,
+    wait_exponential,
 )
 
 from tests.integration.helpers import SLOTH
@@ -25,8 +25,7 @@ PROMETHEUS = "prometheus"
 TEST_PROVIDER = "slo-test-provider"
 TIMEOUT = 600
 PROMETHEUS_RULES_CMD = "curl -s http://localhost:9090/api/v1/rules"
-PROMETHEUS_RULES_ATTEMPTS = 40
-PROMETHEUS_RULES_DELAY = 5
+PROMETHEUS_RULES_TIMEOUT = 600
 
 
 def _fetch_prometheus_rules(juju: Juju) -> dict:
@@ -36,8 +35,8 @@ def _fetch_prometheus_rules(juju: Juju) -> dict:
 
 
 @retry(
-    stop=stop_after_attempt(PROMETHEUS_RULES_ATTEMPTS),
-    wait=wait_fixed(PROMETHEUS_RULES_DELAY),
+    stop=stop_after_delay(PROMETHEUS_RULES_TIMEOUT),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
     retry=retry_if_exception_type((TaskError, AssertionError, KeyError, json.JSONDecodeError)),
     reraise=True,
 )
