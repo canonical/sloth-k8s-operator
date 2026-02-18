@@ -76,6 +76,7 @@ class SlothOperatorCharm(ops.CharmBase):
         self.sloth = Sloth(
             container=self._sloth_container,
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
+            slo_period_windows=typing.cast(str, self.config.get("slo-period-windows", "")),
         )
 
         # event handlers
@@ -189,6 +190,17 @@ class SlothOperatorCharm(ops.CharmBase):
             )
         else:
             self.unit.set_workload_version(self.sloth.version())
+
+        # Check if SLO period configuration is valid
+        is_valid, error_msg = self.sloth.is_config_valid()
+        if not is_valid:
+            # Log detailed explanation
+            logger.warning(
+                f"{error_msg}. Sloth only has built-in defaults for '30d' and '28d' periods. "
+                "For other periods, you must provide custom slo-period-windows configuration."
+            )
+            event.add_status(ops.BlockedStatus(error_msg))
+            return
 
         event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
 

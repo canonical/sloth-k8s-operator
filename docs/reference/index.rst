@@ -9,4 +9,5 @@ Contents
 .. toctree::
     :maxdepth: 1
 
+    configuration
     slos

@@ -97,6 +97,52 @@ config:
   options:
     slo-period:
       description: |
-        The period for SLO calculations (e.g., "30d" for 30 days).
+        The default SLO period for calculations (e.g., "30d" for 30 days, "28d" for 28 days, "7d" for 7 days).
+        This is used when no custom SLO period windows configuration is provided.
+        
+        Sloth uses this to generate alert windows based on Google's SRE Workbook recommendations.
+        The built-in windows are optimized for 30d and 28d periods.
+        
+        **IMPORTANT**: If you use a period other than 30d or 28d, you MUST also provide 
+        slo-period-windows configuration. Otherwise, the charm will be in a blocked state.
       type: string
       default: "30d"
+    slo-period-windows:
+      description: |
+        Custom SLO period windows configuration in YAML format.
+        
+        This allows you to define custom alerting windows for SLO monitoring.
+        When provided, this overrides the default period windows for the slo-period.
+        
+        **REQUIRED**: This configuration is REQUIRED when using a slo-period other than 30d or 28d,
+        as Sloth only has built-in defaults for those two periods.
+        
+        The YAML must follow the Sloth AlertWindows spec (apiVersion: sloth.slok.dev/v1, kind: AlertWindows).
+        
+        Example for a 7-day window:
+          apiVersion: sloth.slok.dev/v1
+          kind: AlertWindows
+          spec:
+            sloPeriod: 7d
+            page:
+              quick:
+                errorBudgetPercent: 8
+                shortWindow: 5m
+                longWindow: 1h
+              slow:
+                errorBudgetPercent: 12.5
+                shortWindow: 30m
+                longWindow: 6h
+            ticket:
+              quick:
+                errorBudgetPercent: 20
+                shortWindow: 2h
+                longWindow: 1d
+              slow:
+                errorBudgetPercent: 42
+                shortWindow: 6h
+                longWindow: 3d
+        
+        See https://sloth.dev/usage/slo-period-windows/ for more information.
+      type: string
+      default: ""

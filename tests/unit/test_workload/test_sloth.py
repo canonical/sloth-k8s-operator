@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-from sloth import GENERATED_RULES_DIR, SLO_SPECS_DIR, Sloth
+from sloth import GENERATED_RULES_DIR, SLO_PERIOD_WINDOWS_DIR, SLO_SPECS_DIR, Sloth
 
 
 @pytest.fixture
@@ -16,6 +16,7 @@ def sloth():
     return Sloth(
         container=container_mock,
         slo_period="30d",
+        slo_period_windows="",
     )
 
 
@@ -264,4 +265,378 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
     assert "service1" in sloth._container.pull.call_args[0][0]
 
 
+def test_reconcile_slo_period_windows_not_configured(sloth):
+    """Test that no period windows are written when not configured."""
+    sloth._slo_period_windows = ""
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write files
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_configured(sloth):
+    """Test that custom period windows are written when configured."""
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = custom_windows
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should create directory (after validation)
+    sloth._container.make_dir.assert_called_with(SLO_PERIOD_WINDOWS_DIR, make_parents=True)
+
+    # Should write the config file
+    sloth._container.push.assert_called_once()
+    push_args = sloth._container.push.call_args[0]
+    assert SLO_PERIOD_WINDOWS_DIR in push_args[0]
+    assert push_args[1] == custom_windows
+
+
+def test_reconcile_slo_period_windows_invalid_yaml(sloth):
+    """Test that invalid YAML is not written and logs an error."""
+    invalid_yaml = "invalid: yaml: {{{"
+
+    sloth._slo_period_windows = invalid_yaml
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when YAML is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_generate_rules_with_default_period(sloth):
+    """Test that sloth generate is called with default period."""
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "30d"
+    sloth._slo_period_windows = ""
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called with default period
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--default-slo-period" in args
+    assert "30d" in args
+
+
+def test_generate_rules_with_custom_period_windows(sloth):
+    """Test that sloth generate is called with custom period windows path."""
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "7d"
+    sloth._slo_period_windows = "custom yaml config"
+    sloth._container.exists.return_value = True
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called with period windows path
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--default-slo-period" in args
+    assert "7d" in args
+    assert "--slo-period-windows-path" in args
+    assert SLO_PERIOD_WINDOWS_DIR in args
+
+
+def test_generate_rules_without_custom_period_windows(sloth):
+    """Test that sloth generate is not called with period windows path when not configured."""
+    mock_process = MagicMock()
+    mock_process.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = mock_process
+    sloth._slo_period = "30d"
+    sloth._slo_period_windows = ""
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/test.yaml")
+
+    # Verify sloth generate was called without period windows path
+    sloth._container.exec.assert_called_once()
+    args = sloth._container.exec.call_args[0][0]
+    assert "generate" in args
+    assert "--slo-period-windows-path" not in args
+
+
+def test_reconcile_slo_period_windows_invalid_spec_missing_fields(sloth):
+    """Test that incomplete AlertWindows spec is rejected."""
+    # Missing 'ticket' field
+    incomplete_spec = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+"""
+
+    sloth._slo_period_windows = incomplete_spec
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when spec is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_kind(sloth):
+    """Test that AlertWindows with wrong kind is rejected."""
+    wrong_kind = """apiVersion: sloth.slok.dev/v1
+kind: WrongKind
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = wrong_kind
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when kind is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_api_version(sloth):
+    """Test that AlertWindows with wrong apiVersion is rejected."""
+    wrong_api_version = """apiVersion: wrong/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = wrong_api_version
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when apiVersion is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_duration_format(sloth):
+    """Test that AlertWindows with invalid duration format is rejected."""
+    invalid_duration = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: invalid
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = invalid_duration
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when duration format is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_invalid_error_budget_percent(sloth):
+    """Test that AlertWindows with invalid errorBudgetPercent is rejected."""
+    invalid_percent = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 150
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+"""
+
+    sloth._slo_period_windows = invalid_percent
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should not create directory or write the file when errorBudgetPercent is invalid
+    assert not sloth._container.make_dir.called
+    assert not sloth._container.push.called
+
+
+def test_is_config_valid_with_default_30d():
+    """Test that config is valid with default 30d period."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="30d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_is_config_valid_with_28d():
+    """Test that config is valid with 28d period (has built-in defaults)."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="28d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_is_config_valid_with_7d_no_windows():
+    """Test that config is invalid with 7d period and no custom windows."""
+    container_mock = MagicMock()
+    sloth = Sloth(container=container_mock, slo_period="7d", slo_period_windows="")
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert not is_valid
+    assert "7d" in error_msg
+    assert "slo-period-windows" in error_msg
+
+
+def test_is_config_valid_with_7d_and_windows():
+    """Test that config is valid with 7d period and custom windows."""
+    container_mock = MagicMock()
+    custom_windows = """apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+"""
+    sloth = Sloth(container=container_mock, slo_period="7d", slo_period_windows=custom_windows)
+
+    is_valid, error_msg = sloth.is_config_valid()
+
+    assert is_valid
+    assert error_msg == ""
+
+
+def test_reconcile_slo_period_windows_cleanup_when_removed(sloth):
+    """Test that custom windows file is removed when config is cleared."""
+    sloth._slo_period_windows = ""
+    sloth._container.exists.return_value = True
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should check if file exists
+    sloth._container.exists.assert_called_with(f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml")
+
+    # Should remove the file
+    sloth._container.remove_path.assert_called_once_with(
+        f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml"
+    )
+
+    # Should not push any new content
+    assert not sloth._container.push.called
+
+
+def test_reconcile_slo_period_windows_no_cleanup_when_not_exists(sloth):
+    """Test that no cleanup happens when file doesn't exist."""
+    sloth._slo_period_windows = ""
+    sloth._container.exists.return_value = False
+
+    sloth._reconcile_slo_period_windows()
+
+    # Should check if file exists
+    sloth._container.exists.assert_called_with(f"{SLO_PERIOD_WINDOWS_DIR}/custom-period.yaml")
+
+    # Should not try to remove file
+    assert not sloth._container.remove_path.called
+
+    # Should not push any new content
+    assert not sloth._container.push.called
 

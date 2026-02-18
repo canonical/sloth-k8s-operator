@@ -62,6 +62,86 @@ $ juju show-unit sloth-k8s/0 --format=json | jq -r '.["sloth-k8s/0"]["address"]'
 Sloth generates SLO rules based on provided SLO specifications. The generated rules can be
 consumed by Prometheus for monitoring service reliability.
 
+### SLO Period Configuration
+
+The charm supports two configuration options for controlling SLO period windows:
+
+#### `slo-period` (default: `30d`)
+
+The default SLO period for calculations. This determines the time window over which SLO
+compliance is measured. Common values are:
+- `30d` - 30 days (default, recommended for most use cases)
+- `28d` - 28 days (4-week rolling window)
+- `7d` - 7 days (for shorter-term SLOs)
+
+**Important**: Sloth only has built-in alert window defaults for `30d` and `28d` periods.
+If you use any other period (like `7d`), you **must** also configure `slo-period-windows`,
+otherwise the charm will go to a blocked state.
+
+```bash
+# This works - 30d has built-in defaults
+juju config sloth-k8s slo-period=30d
+
+# This requires slo-period-windows configuration
+juju config sloth-k8s slo-period=7d
+```
+
+#### `slo-period-windows` (required for custom periods)
+
+Custom SLO period windows configuration in YAML format. This allows you to define custom
+alerting windows that override Sloth's default alert window calculations.
+
+**Required when**: Using a `slo-period` other than `30d` or `28d`.
+
+The charm validates the configuration against the [Sloth AlertWindows specification](https://github.com/slok/sloth/tree/main/pkg/prometheus/alertwindows/v1) to ensure correctness. Invalid configurations are logged as errors and ignored.
+
+When provided, this configuration defines:
+- **Quick page alerts**: Fast detection of significant error budget consumption
+- **Slow page alerts**: Detection of sustained error budget consumption
+- **Quick ticket alerts**: Early warning of moderate error budget consumption
+- **Slow ticket alerts**: Long-term trend monitoring
+
+Example configuration for a 7-day SLO period:
+
+```bash
+juju config sloth-k8s slo-period-windows='
+apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 7d
+  page:
+    quick:
+      errorBudgetPercent: 8
+      shortWindow: 5m
+      longWindow: 1h
+    slow:
+      errorBudgetPercent: 12.5
+      shortWindow: 30m
+      longWindow: 6h
+  ticket:
+    quick:
+      errorBudgetPercent: 20
+      shortWindow: 2h
+      longWindow: 1d
+    slow:
+      errorBudgetPercent: 42
+      shortWindow: 6h
+      longWindow: 3d
+'
+```
+
+**Configuration parameters explained:**
+- `sloPeriod`: Must match your `slo-period` config value
+- `errorBudgetPercent`: Percentage of error budget consumed to trigger alert (0-100)
+- `shortWindow`: Shorter time window for detecting transient issues (e.g., "5m", "1h")
+- `longWindow`: Longer time window for overall trend (e.g., "6h", "1d")
+
+**Note**: The default 30d and 28d periods use Google's SRE Workbook recommended parameters.
+Only configure custom windows if you need different alerting thresholds or are using
+non-standard SLO periods.
+
+For more information, see [Sloth's SLO Period Windows documentation](https://sloth.dev/usage/slo-period-windows/).
+
 ## Implementing SLO Support in Your Charm
 
 To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
