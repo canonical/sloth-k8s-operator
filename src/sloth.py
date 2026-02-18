@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 VERSION_PATTERN = re.compile(r'([0-9]+[.][0-9]+[.][0-9]+[-0-9a-f]*)')
 # sloth server bind port
 _SLOTH_PORT = 8080
-DEFAULT_BIN_PATH = "/usr/local/bin/sloth"
+DEFAULT_BIN_PATH = "/usr/bin/sloth"
 
 # Paths for SLO specs and generated rules in the container
 SLO_SPECS_DIR = "/etc/sloth/slos"
