@@ -1,3 +1,0 @@
-ops>=2.0
-pydantic>=2,<3
-charmlibs-interfaces-sloth

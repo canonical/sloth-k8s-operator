@@ -131,3 +131,138 @@ juju relate your-charm:slos sloth-k8s:slos
 ```
 
 The Sloth library supports dynamic SLO updates, Pydantic validation, and is designed for easy integration with any charm that wants to provide SLO specifications.
+
+## Troubleshooting
+
+### SLO Specifications Not Converting to Prometheus Rules
+
+If you've integrated a charm with Sloth but don't see the expected Prometheus recording rules being generated, follow these troubleshooting steps:
+
+#### 1. Verify the SLO provider is sending specifications
+
+Check if the provider charm is actually sending SLO specs:
+
+```bash
+juju debug-log --replay --no-tail --include <provider-app>/0 | grep -i "slo"
+```
+
+You should see log messages indicating that SLO specifications were sent. If not, check the provider charm's configuration and relation setup.
+
+#### 2. Check Sloth logs for errors
+
+Look for errors in the Sloth charm logs:
+
+```bash
+juju debug-log --replay --no-tail --include sloth/0 | grep -i "error\|failed"
+```
+
+Common errors include:
+
+**a) YAML unmarshal errors**
+```
+error: "generate" command failed: could not unmarshall YAML spec correctly: yaml: unmarshal errors:
+  line X: cannot unmarshal !!seq into map[string]string
+```
+
+**Cause**: The SLO specification has invalid YAML structure. Common issues:
+- `labels: []` (empty array) instead of `labels: {}` (empty map) or proper key-value pairs
+- Missing or malformed fields in the SLO specification
+
+**Solution**: Fix the SLO specification YAML. For example, change:
+```yaml
+# Wrong
+alerting:
+  labels: []
+
+# Correct  
+alerting:
+  labels:
+    severity: warning
+```
+
+**b) AttributeError in SlothProvider library**
+```
+AttributeError: 'NoneType' object has no attribute 'get'
+```
+
+**Cause**: The SLO specification list contains `None` entries, usually from empty YAML list items (a lone `-` character).
+
+**Solution**: Remove any empty list markers from your SLO YAML. Check for patterns like:
+```yaml
+# Wrong
+slos:
+- name: valid-slo
+  ...
+-
+#- name: commented-slo
+
+# Correct
+slos:
+- name: valid-slo
+  ...
+#- name: commented-slo
+```
+
+#### 3. Verify relation data
+
+Check what's being sent over the relation:
+
+```bash
+# From Sloth side
+juju show-unit sloth/0 | grep -A20 "relation-info"
+
+# From provider side  
+juju show-unit <provider-app>/0 | grep -A20 "relation-info"
+```
+
+The provider's `application-data` should contain the SLO specifications. If it's empty (`{}`), the provider charm isn't sending data properly.
+
+#### 4. Verify Prometheus has the rules
+
+Once Sloth successfully generates rules, check Prometheus:
+
+```bash
+juju exec --unit prometheus/0 'curl -s http://localhost:9090/api/v1/rules' | jq -r '.data.groups[].name' | grep <service-name>
+```
+
+You should see rule groups for your service with names like:
+- `<model>_<hash>_sloth_sloth_slo_alerts_<service>_<slo-name>_alerts`
+- `<model>_<hash>_sloth_sloth_slo_meta_recordings_<service>_<slo-name>`
+- `<model>_<hash>_sloth_sloth_slo_sli_recordings_<service>_<slo-name>`
+
+#### 5. Force relation update
+
+If you've fixed issues in the provider charm but Sloth still has the old (broken) SLO specification cached, you can force a refresh by:
+
+```bash
+# Remove and re-add the relation
+juju remove-relation <provider-app>:slos sloth:sloth
+sleep 10
+juju integrate <provider-app>:slos sloth:sloth
+```
+
+Or trigger a config change on the provider:
+```bash
+# Change a config value to trigger reconciliation
+juju config <provider-app> <some-config-key>=<new-value>
+```
+
+#### 6. Validate your SLO specification format
+
+Test your SLO YAML locally before deploying:
+
+```bash
+# Install sloth locally
+snap install sloth --edge
+
+# Test generate command on your SLO spec
+sloth generate -i your-slo.yaml
+```
+
+This will show you any YAML or specification errors before deploying to Juju.
+
+### Additional Resources
+
+- [Sloth documentation](https://sloth.dev/)
+- [SLO specification format](https://github.com/slok/sloth#slo-spec)
+- [Example SLO specifications](https://github.com/slok/sloth/tree/main/examples)
