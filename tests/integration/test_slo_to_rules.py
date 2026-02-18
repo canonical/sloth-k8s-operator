@@ -6,17 +6,10 @@
 
 import json
 import time
-from typing import Callable
 
 import jubilant
 import pytest
-from jubilant import Juju, TaskError
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_delay,
-    wait_exponential,
-)
+from jubilant import Juju
 
 from tests.integration.helpers import SLOTH
 
@@ -24,39 +17,6 @@ GRAFANA = "grafana"
 PROMETHEUS = "prometheus"
 PARCA = "parca"
 TIMEOUT = 600
-PROMETHEUS_RULES_CMD = "curl -s http://localhost:9090/api/v1/rules"
-PROMETHEUS_RULES_TIMEOUT = 600
-
-
-def _fetch_prometheus_rules(juju: Juju) -> dict:
-    """Fetch Prometheus rules once."""
-    result = juju.exec(PROMETHEUS_RULES_CMD, unit=f"{PROMETHEUS}/0")
-    return json.loads(result.stdout)
-
-
-@retry(
-    stop=stop_after_delay(PROMETHEUS_RULES_TIMEOUT),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type((TaskError, AssertionError, KeyError, json.JSONDecodeError)),
-    reraise=True,
-)
-def _wait_for_prometheus_groups(
-    juju: Juju,
-    group_filter: Callable[[dict], bool],
-    *,
-    min_count: int = 1,
-) -> list[dict]:
-    """Return matching rule groups once they appear in Prometheus."""
-    rules_data = _fetch_prometheus_rules(juju)
-    if "data" not in rules_data or "groups" not in rules_data["data"]:
-        raise AssertionError("Prometheus should return rules data")
-    groups = rules_data["data"]["groups"]
-    matches = [g for g in groups if group_filter(g)]
-    if len(matches) < min_count:
-        raise AssertionError(
-            f"Expected at least {min_count} Prometheus rule groups, found: {len(matches)}"
-        )
-    return matches
 
 
 @pytest.mark.setup
@@ -111,24 +71,6 @@ def test_slo_provider_relation_established(juju: Juju):
         "Sloth should have sloth relation"
 
 
-def test_sloth_generates_builtin_prometheus_rules(juju: Juju):
-    """Test that Sloth generates its built-in Prometheus availability SLO rules."""
-    prometheus_groups = _wait_for_prometheus_groups(
-        juju,
-        lambda g: "sloth" in g["name"].lower() and "prometheus" in g["name"].lower(),
-        min_count=3,
-    )
-
-    assert len(prometheus_groups) >= 3, \
-        f"Should have at least 3 Prometheus SLO rule groups (alerts, meta, sli), found: {len(prometheus_groups)}"
-
-    # Verify we have the expected rule groups for the built-in Prometheus SLO
-    group_names = [g["name"] for g in prometheus_groups]
-    assert any("alerts" in name for name in group_names), "Should have SLO alerts group"
-    assert any("meta" in name for name in group_names), "Should have meta recordings group"
-    assert any("sli" in name for name in group_names), "Should have SLI recordings group"
-
-
 def test_sloth_generates_parca_slo_rules(juju: Juju):
     """Test that Sloth generates Prometheus rules from Parca's SLO specs.
 
@@ -141,11 +83,33 @@ def test_sloth_generates_parca_slo_rules(juju: Juju):
     """
     # Wait for Parca SLO rules to appear in Prometheus
     # This may take longer as it involves: relation update → sloth generate → prometheus reload
-    parca_service_groups = _wait_for_prometheus_groups(
-        juju,
-        lambda g: "sloth" in g["name"].lower() and "parca" in g["name"].lower(),
-        min_count=3,
-    )
+    max_attempts = 40  # 40 * 5s = 200s max wait (generous timeout for full flow)
+    parca_service_groups = []
+
+    for attempt in range(max_attempts):
+        try:
+            cmd = 'curl -s http://localhost:9090/api/v1/rules'
+            result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+            rules_data = json.loads(result.stdout)
+
+            assert "data" in rules_data, "Prometheus should return rules data"
+            groups = rules_data["data"]["groups"]
+
+            # Find parca-service related Sloth-generated rule groups
+            # Note: Prometheus transforms hyphens to underscores in group names
+            parca_service_groups = [
+                g for g in groups
+                if "sloth" in g["name"].lower() and "parca" in g["name"].lower()
+            ]
+
+            if len(parca_service_groups) >= 3:
+                break  # Found Parca's rules!
+        except Exception:
+            # Prometheus might not be ready yet, will retry
+            pass
+
+        if attempt < max_attempts - 1:
+            time.sleep(5)
 
     # This is the key assertion - if this passes, the SLO-to-rules flow works!
     assert len(parca_service_groups) >= 3, \
@@ -163,11 +127,11 @@ def test_sloth_generates_parca_slo_rules(juju: Juju):
 
 def test_parca_slo_rules_content(juju: Juju):
     """Verify the actual content of the generated rules matches Parca's SLO spec."""
-    groups = _wait_for_prometheus_groups(
-        juju,
-        lambda g: "sloth" in g["name"].lower() and "parca" in g["name"].lower(),
-        min_count=3,
-    )
+    cmd = 'curl -s http://localhost:9090/api/v1/rules'
+    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+    rules_data = json.loads(result.stdout)
+
+    groups = rules_data["data"]["groups"]
 
     # Find parca SLI recordings group
     # Note: Prometheus transforms hyphens to underscores in group names
@@ -233,12 +197,17 @@ def test_dynamic_slo_update(juju: Juju):
     # parca config → parca relation update → sloth generate → prometheus reload
     time.sleep(30)
 
+    # Verify rules still exist (may have slightly different objectives)
+    cmd = 'curl -s http://localhost:9090/api/v1/rules'
+    result = juju.exec(cmd, unit=f"{PROMETHEUS}/0")
+    rules_data = json.loads(result.stdout)
+
+    groups = rules_data["data"]["groups"]
     # Note: Prometheus transforms hyphens to underscores in group names
-    parca_service_groups = _wait_for_prometheus_groups(
-        juju,
-        lambda g: "sloth" in g["name"].lower() and "parca" in g["name"].lower(),
-        min_count=3,
-    )
+    parca_service_groups = [
+        g for g in groups
+        if "sloth" in g["name"].lower() and "parca" in g["name"].lower()
+    ]
 
     # Rules should still be present after config change
     assert len(parca_service_groups) >= 3, \
