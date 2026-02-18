@@ -38,7 +38,7 @@ resources:
   sloth-image:
     type: oci-image
     description: OCI image for sloth
-    upstream-source: ghcr.io/slok/sloth:v0.11.0  # TODO: Make this a rock
+    upstream-source: ubuntu/sloth@sha256:54ef899eb01a6abbf448628e5b2f1b687f7e7bb712c8bcd260cec30e85a91cb3  # renovate: oci-image tag: 0.15-24.04
 
 requires:
   catalogue:
