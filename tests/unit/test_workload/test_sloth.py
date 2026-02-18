@@ -26,7 +26,7 @@ def test_default_pebble_layer(sloth):
                 "summary": "sloth",
                 "startup": "enabled",
                 "override": "replace",
-                "command": f"/usr/local/bin/sloth serve --listen=localhost:{Sloth.port} --default-slo-period=30d",
+                "command": f"/usr/bin/sloth serve --listen=localhost:{Sloth.port} --default-slo-period=30d",
             }
         }
     }
