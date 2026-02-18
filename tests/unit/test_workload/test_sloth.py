@@ -67,28 +67,6 @@ def test_reconcile_slo_specs_creates_directories(sloth):
     )
 
 
-def test_reconcile_slo_specs_writes_prometheus_slo(sloth):
-    """Test that reconcile writes the Prometheus SLO spec."""
-    sloth._container.exists.return_value = False
-
-    sloth._reconcile_slo_specs()
-
-    # Check that push was called with the SLO spec
-    push_calls = list(sloth._container.push.call_args_list)
-    slo_written = False
-    for call_args in push_calls:
-        path = call_args[0][0]
-        if path.endswith("prometheus-availability.yaml"):
-            slo_written = True
-            content = call_args[0][1]
-            # Parse YAML to verify it's valid
-            slo_data = yaml.safe_load(content)
-            assert slo_data["service"] == "prometheus"
-            break
-
-    assert slo_written, "Prometheus SLO spec was not written"
-
-
 def test_reconcile_additional_slos(sloth):
     """Test that additional SLOs from relations are processed."""
     additional_slo = {
@@ -194,23 +172,6 @@ def test_reconcile_multiple_additional_slos(sloth):
     assert services_written == {"app1", "app2"}, "Not all SLO specs were written"
 
 
-def test_get_prometheus_availability_slo(sloth):
-    """Test that the hardcoded SLO is properly formatted."""
-    slo_yaml = sloth._get_prometheus_availability_slo()
-    slo = yaml.safe_load(slo_yaml)
-
-    assert slo["version"] == "prometheus/v1"
-    assert slo["service"] == "prometheus"
-    assert len(slo["slos"]) == 1
-
-    slo_spec = slo["slos"][0]
-    assert slo_spec["name"] == "requests-availability"
-    assert slo_spec["objective"] == 99.0
-    assert "error_query" in slo_spec["sli"]["events"]
-    assert "total_query" in slo_spec["sli"]["events"]
-    assert "alerting" in slo_spec
-
-
 def test_generate_rules_from_slo(sloth):
     """Test that rules are generated from SLO specs."""
     mock_process = MagicMock()
@@ -246,9 +207,9 @@ def test_get_alert_rules_consolidates_multiple_files(sloth):
 
     # Mock file listing
     file1 = MagicMock()
-    file1.name = "prometheus-availability.yaml"
+    file1.name = "service1.yaml"
     file2 = MagicMock()
-    file2.name = "another-slo.yaml"
+    file2.name = "service2.yaml"
     sloth._container.list_files.return_value = [file1, file2]
 
     # Mock file content
@@ -265,7 +226,7 @@ def test_get_alert_rules_consolidates_multiple_files(sloth):
 
     def mock_pull(path):
         mock_file = MagicMock()
-        if "prometheus-availability" in path:
+        if "service1" in path:
             mock_file.read.return_value = yaml.safe_dump(rules1)
         else:
             mock_file.read.return_value = yaml.safe_dump(rules2)
@@ -287,7 +248,7 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
 
     # Mock file listing with a non-yaml file
     file1 = MagicMock()
-    file1.name = "prometheus-availability.yaml"
+    file1.name = "service1.yaml"
     file2 = MagicMock()
     file2.name = "readme.txt"
     sloth._container.list_files.return_value = [file1, file2]
@@ -301,7 +262,7 @@ def test_get_alert_rules_skips_non_yaml_files(sloth):
 
     # Should only pull the yaml file
     assert sloth._container.pull.call_count == 1
-    assert "prometheus-availability" in sloth._container.pull.call_args[0][0]
+    assert "service1" in sloth._container.pull.call_args[0][0]
 
 
 def test_reconcile_slo_period_windows_not_configured(sloth):

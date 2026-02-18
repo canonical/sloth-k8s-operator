@@ -120,67 +120,8 @@ class Sloth:
             if not self._container.exists(directory):
                 self._container.make_dir(directory, make_parents=True)
 
-        # Write hardcoded Prometheus availability SLO
-        prometheus_slo = self._get_prometheus_availability_slo()
-        slo_path = f"{SLO_SPECS_DIR}/prometheus-availability.yaml"
-
-        current_content = ""
-        if self._container.exists(slo_path):
-            current_content = self._container.pull(slo_path).read()
-
-        if current_content != prometheus_slo:
-            self._container.push(slo_path, prometheus_slo, make_dirs=True)
-            logger.info("Updated Prometheus availability SLO specification")
-
-            # Generate Prometheus rules from the SLO
-            self._generate_rules_from_slo(slo_path)
-
-        # Process additional SLOs from relations
+        # Process SLOs from relations
         self._reconcile_additional_slos(additional_slos)
-
-    def _get_prometheus_availability_slo(self) -> str:
-        """Return the hardcoded Prometheus availability SLO specification."""
-        slo = {
-            "version": "prometheus/v1",
-            "service": "prometheus",
-            "labels": {
-                "owner": "observability-team",
-                "repo": "sloth-k8s",
-            },
-            "slos": [
-                {
-                    "name": "requests-availability",
-                    "objective": 99.0,
-                    "description": "Prometheus should have low request activity (less than 1 req/s) 99% of the time",
-                    "sli": {
-                        "events": {
-                            "error_query": 'sum(rate(prometheus_http_requests_total{juju_application="prometheus"}[{{.window}}])) > bool 1',
-                            "total_query": 'sum(rate(prometheus_http_requests_total{juju_application="prometheus"}[{{.window}}])) >= bool 0',
-                        }
-                    },
-                    "alerting": {
-                        "name": "PrometheusHighRequestActivity",
-                        "labels": {
-                            "category": "availability",
-                        },
-                        "annotations": {
-                            "summary": "Prometheus is experiencing high request activity (>1 req/s)",
-                        },
-                        "page_alert": {
-                            "labels": {
-                                "severity": "critical",
-                            }
-                        },
-                        "ticket_alert": {
-                            "labels": {
-                                "severity": "warning",
-                            }
-                        },
-                    },
-                }
-            ],
-        }
-        return yaml.safe_dump(slo, default_flow_style=False)
 
     def _reconcile_additional_slos(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Process additional SLOs from relations and generate rules."""
