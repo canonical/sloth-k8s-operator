@@ -25,20 +25,5 @@ def sloth_charm():
 
 
 @fixture(scope="module")
-def slo_provider_charm():
-    """SLO test provider charm used for integration testing."""
-    provider_dir = Path("./tests/integration/slo-test-provider")
-    charm_path = provider_dir / "slo-test-provider_ubuntu-22.04-amd64.charm"
-
-    if charm_path.exists():
-        logger.info(f"using existing provider charm: {charm_path}")
-        # Juju requires local charm paths to start with ./
-        return f"./{charm_path}"
-
-    logger.info(f"packing provider charm from {provider_dir}")
-    return pack(str(provider_dir))
-
-
-@fixture(scope="module")
 def sloth_resources():
     return get_resources("./")
