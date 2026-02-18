@@ -626,8 +626,6 @@ def test_is_config_valid_with_7d_no_windows():
     assert not is_valid
     assert "7d" in error_msg
     assert "slo-period-windows" in error_msg
-    assert "30d" in error_msg
-    assert "28d" in error_msg
 
 
 def test_is_config_valid_with_7d_and_windows():

@@ -194,6 +194,11 @@ class SlothOperatorCharm(ops.CharmBase):
         # Check if SLO period configuration is valid
         is_valid, error_msg = self.sloth.is_config_valid()
         if not is_valid:
+            # Log detailed explanation
+            logger.warning(
+                f"{error_msg}. Sloth only has built-in defaults for '30d' and '28d' periods. "
+                "For other periods, you must provide custom slo-period-windows configuration."
+            )
             event.add_status(ops.BlockedStatus(error_msg))
             return
 

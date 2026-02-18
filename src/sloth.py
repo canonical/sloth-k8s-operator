@@ -59,8 +59,7 @@ class Sloth:
             if not self._slo_period_windows:
                 return (
                     False,
-                    f"Custom slo-period '{self._slo_period}' requires slo-period-windows configuration. "
-                    "Sloth only has built-in defaults for '30d' and '28d' periods.",
+                    f"Custom slo-period '{self._slo_period}' requires slo-period-windows configuration",
                 )
         return (True, "")
 
