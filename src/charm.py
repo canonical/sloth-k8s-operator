@@ -22,6 +22,7 @@ from charms.certificate_transfer_interface.v1.certificate_transfer import (
 from charms.grafana_k8s.v0.grafana_dashboard import GrafanaDashboardProvider
 from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
+from charms.prometheus_k8s.v1.prometheus_remote_write import PrometheusRemoteWriteConsumer
 from charms.tempo_coordinator_k8s.v0.tracing import TracingEndpointRequirer
 
 from sloth import Sloth
@@ -50,6 +51,12 @@ class SlothOperatorCharm(ops.CharmBase):
             self,
             jobs=self._metrics_scrape_jobs,
             alert_rules_path="src/prometheus_alert_rules",
+        )
+        self.remote_write_consumer = PrometheusRemoteWriteConsumer(
+            self,
+            relation_name="remote-write",
+            alert_rules_path="src/prometheus_alert_rules",
+            peer_relation_name="sloth_peers",
         )
 
         self.grafana_dashboard_provider = GrafanaDashboardProvider(self)
@@ -132,6 +139,7 @@ class SlothOperatorCharm(ops.CharmBase):
         self._update_alert_rules()
         # Trigger the metrics endpoint provider to send updated rules to Prometheus
         self.metrics_endpoint_provider.set_scrape_job_spec()
+        self.remote_write_consumer.reload_alerts()
 
     def _update_alert_rules(self):
         """Update alert rules from generated SLO specifications."""
@@ -154,7 +162,9 @@ class SlothOperatorCharm(ops.CharmBase):
 
                 # Write the rules as YAML
                 alert_rules_file.write_text(yaml.dump(alert_rules))
-                logger.info(f"Updated alert rules with {len(alert_rules['groups'])} groups to {alert_rules_file}")
+                logger.info(
+                    f"Updated alert rules with {len(alert_rules['groups'])} groups to {alert_rules_file}"
+                )
         except Exception as e:
             logger.error(f"Failed to update alert rules: {e}")
 
@@ -185,9 +195,7 @@ class SlothOperatorCharm(ops.CharmBase):
             )
 
         if not self._sloth_container.can_connect():
-            event.add_status(
-                ops.WaitingStatus("Waiting for workload container...")
-            )
+            event.add_status(ops.WaitingStatus("Waiting for workload container..."))
         else:
             self.unit.set_workload_version(self.sloth.version())
 
