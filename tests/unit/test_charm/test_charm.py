@@ -56,9 +56,7 @@ def test_healthy_lifecycle_events(context, event, base_state):
     assert_healthy(state_out)
 
 
-def test_config_changed_container_not_ready(
-    context, sloth_container, sloth_peers
-):
+def test_config_changed_container_not_ready(context, sloth_container, sloth_peers):
     """Test config-changed when containers are not ready."""
     sloth_container_not_ready = replace(sloth_container, can_connect=False)
     state = State(
@@ -71,14 +69,10 @@ def test_config_changed_container_not_ready(
     assert "Waiting for workload container..." in state_out.unit_status.message
 
 
-def test_install_container_not_ready(
-    context, sloth_container
-):
+def test_install_container_not_ready(context, sloth_container):
     """Test install hook when containers are not ready."""
     sloth_container_not_ready = replace(sloth_container, can_connect=False)
-    state = State(
-        containers=[sloth_container_not_ready]
-    )
+    state = State(containers=[sloth_container_not_ready])
 
     # Install should not fail even if containers aren't ready
     state_out = context.run(context.on.install(), state)
@@ -186,7 +180,9 @@ def test_multiple_slo_relations(context, base_state):
         remote_app_name="provider2",
         remote_units_data={0: {"slo_spec": yaml.safe_dump(slo_spec_2)}},
     )
-    state = replace(base_state, relations=list(base_state.relations) + [slo_relation_1, slo_relation_2])
+    state = replace(
+        base_state, relations=list(base_state.relations) + [slo_relation_1, slo_relation_2]
+    )
 
     state_out = context.run(context.on.update_status(), state)
     assert isinstance(state_out.unit_status, ActiveStatus)
@@ -241,6 +237,15 @@ def test_metrics_endpoint_relation(context, base_state):
     assert isinstance(state_out.unit_status, ActiveStatus)
 
 
+def test_remote_write_relation(context, base_state):
+    """Test remote-write relation."""
+    remote_write_relation = Relation("remote-write", remote_app_name="prometheus")
+    state = replace(base_state, relations=list(base_state.relations) + [remote_write_relation])
+
+    state_out = context.run(context.on.relation_joined(remote_write_relation), state)
+    assert isinstance(state_out.unit_status, ActiveStatus)
+
+
 def test_grafana_dashboard_relation(context, base_state):
     """Test grafana-dashboard relation."""
     grafana_relation = Relation("grafana-dashboard", remote_app_name="grafana")
@@ -254,6 +259,7 @@ def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
     """Test that charm doesn't go into error state during install when containers aren't ready."""
     # Containers not connected yet (realistic during install)
     from ops.testing import Container
+
     sloth_not_ready = Container("sloth", can_connect=False)
 
     state = State(
@@ -267,9 +273,7 @@ def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
     assert isinstance(state_out.unit_status, WaitingStatus)
 
 
-def test_charm_recovers_from_waiting_state(
-    context, sloth_container, sloth_peers
-):
+def test_charm_recovers_from_waiting_state(context, sloth_container, sloth_peers):
     """Test that charm can recover from waiting state."""
     # Start with containers not ready
     sloth_not_ready = replace(sloth_container, can_connect=False)
@@ -282,9 +286,7 @@ def test_charm_recovers_from_waiting_state(
     assert isinstance(state_out.unit_status, WaitingStatus)
 
     # Now simulate pebble-ready (container becomes ready)
-    state_ready = replace(state_out,
-        containers=[sloth_container]
-    )
+    state_ready = replace(state_out, containers=[sloth_container])
     state_final = context.run(context.on.pebble_ready(sloth_container), state_ready)
     assert_healthy(state_final)
 
@@ -370,4 +372,3 @@ def test_config_28d_period_without_windows_active(context, base_state):
     state_out = context.run(context.on.config_changed(), state)
 
     assert isinstance(state_out.unit_status, ActiveStatus)
-
