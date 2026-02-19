@@ -29,7 +29,7 @@ from sloth import Sloth
 
 logger = logging.getLogger(__name__)
 
-# Where we store the certificate in the charm container
+# where we store the certificate in the charm container
 CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
 
 CERTIFICATES_RELATION_NAME = "certificates"
