@@ -640,3 +640,428 @@ def test_reconcile_slo_period_windows_no_cleanup_when_not_exists(sloth):
     # Should not push any new content
     assert not sloth._container.push.called
 
+
+def test_generate_rules_validation_failure_logs_warning(sloth, caplog):
+    """Test that SLO validation failures log a warning with service name and error."""
+    import logging
+
+    import ops.pebble
+
+    # Set up logging capture at WARNING level
+    caplog.set_level(logging.WARNING)
+
+    # Mock exec to raise ExecError (validation failure)
+    error_message = "error validating SLO spec: invalid field 'objective'"
+    exec_error = ops.pebble.ExecError(
+        command=["sloth", "generate"],
+        exit_code=1,
+        stdout="",
+        stderr=error_message,
+    )
+    sloth._container.exec.side_effect = exec_error
+
+    # Call the method with a service-specific path
+    service_name = "my-app"
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/{service_name}.yaml")
+
+    # Verify warning was logged with correct format
+    warning_messages = [record.message for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warning_messages) == 1, f"Expected 1 warning, got: {warning_messages}"
+
+    warning_msg = warning_messages[0]
+    assert "SLO validation failed" in warning_msg, "Should mention validation failure"
+    assert f"service '{service_name}'" in warning_msg, "Should include service name"
+    assert error_message in warning_msg, "Should include sloth error message"
+
+
+def test_generate_rules_validation_failure_without_stderr(sloth, caplog):
+    """Test that SLO validation failures without stderr still log a warning."""
+    import logging
+
+    import ops.pebble
+
+    caplog.set_level(logging.WARNING)
+
+    # Mock exec to raise ExecError without stderr attribute
+    exec_error = ops.pebble.ExecError(
+        command=["sloth", "generate"],
+        exit_code=1,
+        stdout="",
+        stderr="",
+    )
+    sloth._container.exec.side_effect = exec_error
+
+    service_name = "test-service"
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/{service_name}.yaml")
+
+    # Verify warning was logged
+    warning_messages = [record.message for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warning_messages) == 1
+
+    warning_msg = warning_messages[0]
+    assert "SLO validation failed" in warning_msg
+    assert f"service '{service_name}'" in warning_msg
+
+
+def test_reconcile_additional_slos_validation_failure(sloth, caplog):
+    """Test that validation failures during SLO reconciliation are properly logged."""
+    import logging
+
+    import ops.pebble
+
+    caplog.set_level(logging.WARNING)
+
+    additional_slo = {
+        "version": "prometheus/v1",
+        "service": "invalid-slo-app",
+        "slos": [{"name": "test", "objective": "invalid"}],  # Invalid objective
+    }
+
+    sloth._container.exists.return_value = False
+
+    # Mock exec to fail (validation error)
+    error_message = "objective must be a number between 0 and 100"
+    exec_error = ops.pebble.ExecError(
+        command=["sloth", "generate"],
+        exit_code=1,
+        stdout="",
+        stderr=error_message,
+    )
+    sloth._container.exec.side_effect = exec_error
+
+    sloth._reconcile_additional_slos([additional_slo])
+
+    # Verify warning was logged with service name
+    warning_messages = [record.message for record in caplog.records if record.levelname == "WARNING"]
+    assert any("SLO validation failed" in msg for msg in warning_messages)
+    assert any("invalid-slo-app" in msg for msg in warning_messages)
+    assert any(error_message in msg for msg in warning_messages)
+
+
+def test_validate_generated_rules_with_valid_slos(sloth):
+    """Test rule validation when all SLOs generate the expected number of rules."""
+    # Simulate 2 SLO specs, each with 1 SLO definition
+    slo_specs = [
+        {
+            "version": "prometheus/v1",
+            "service": "app1",
+            "slos": [{"name": "availability", "objective": 99.9}],
+        },
+        {
+            "version": "prometheus/v1",
+            "service": "app2",
+            "slos": [{"name": "latency", "objective": 99.5}],
+        },
+    ]
+
+    # Each SLO generates 17 rules (2 alerts + 7 meta + 8 sli)
+    # 2 SLOs × 17 rules = 34 expected rules
+    sloth._container.exists.return_value = True
+
+    file1 = MagicMock()
+    file1.name = "app1.yaml"
+    file2 = MagicMock()
+    file2.name = "app2.yaml"
+    sloth._container.list_files.return_value = [file1, file2]
+
+    # Each file contains 17 rules for one SLO
+    rules_app1 = {
+        "groups": [
+            {"name": "alerts", "rules": [{}, {}]},  # 2 rules
+            {"name": "meta", "rules": [{}, {}, {}, {}, {}, {}, {}]},  # 7 rules
+            {"name": "sli", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},  # 8 rules
+        ]
+    }
+    rules_app2 = {
+        "groups": [
+            {"name": "alerts", "rules": [{}, {}]},  # 2 rules
+            {"name": "meta", "rules": [{}, {}, {}, {}, {}, {}, {}]},  # 7 rules
+            {"name": "sli", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},  # 8 rules
+        ]
+    }
+
+    def mock_pull(path):
+        mock_file = MagicMock()
+        if "app1" in path:
+            mock_file.read.return_value = yaml.safe_dump(rules_app1)
+        else:
+            mock_file.read.return_value = yaml.safe_dump(rules_app2)
+        return mock_file
+
+    sloth._container.pull.side_effect = mock_pull
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert is_valid, "Validation should pass when all rules are generated"
+    assert error_msg == "", "Error message should be empty when valid"
+    assert expected_count == 34, "Expected 2 SLOs × 17 rules = 34"
+    assert actual_count == 34, "Should count 34 actual rules"
+
+
+def test_validate_generated_rules_with_invalid_slos(sloth):
+    """Test rule validation when some SLOs fail to generate rules."""
+    # 3 SLO specs, each with 1 SLO definition
+    slo_specs = [
+        {"version": "prometheus/v1", "service": "app1", "slos": [{"name": "test1"}]},
+        {"version": "prometheus/v1", "service": "app2", "slos": [{"name": "test2"}]},
+        {"version": "prometheus/v1", "service": "app3", "slos": [{"name": "test3"}]},
+    ]
+
+    # Expected: 3 SLOs × 17 rules = 51 rules
+    # Actual: Only app1 and app2 generated rules (app3 failed validation)
+    sloth._container.exists.return_value = True
+
+    file1 = MagicMock()
+    file1.name = "app1.yaml"
+    file2 = MagicMock()
+    file2.name = "app2.yaml"
+    # app3.yaml is missing (validation failed, no rules generated)
+    sloth._container.list_files.return_value = [file1, file2]
+
+    rules_per_slo = {
+        "groups": [
+            {"name": "alerts", "rules": [{}, {}]},  # 2 rules
+            {"name": "meta", "rules": [{}, {}, {}, {}, {}, {}, {}]},  # 7 rules
+            {"name": "sli", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},  # 8 rules
+        ]
+    }
+
+    mock_file = MagicMock()
+    mock_file.read.return_value = yaml.safe_dump(rules_per_slo)
+    sloth._container.pull.return_value = mock_file
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert not is_valid, "Validation should fail when rules are missing"
+    assert "incomplete" in error_msg.lower(), "Error should mention incomplete generation"
+    assert "51" in error_msg, "Error should show expected count (51)"
+    assert "34" in error_msg, "Error should show actual count (34)"
+    assert "1 SLO failed" in error_msg, "Error should mention 1 failed SLO"
+    assert expected_count == 51
+    assert actual_count == 34
+
+
+def test_validate_generated_rules_with_multiple_slos_per_service(sloth):
+    """Test rule validation when a service has multiple SLO definitions."""
+    # 1 service with 3 SLO definitions
+    slo_specs = [
+        {
+            "version": "prometheus/v1",
+            "service": "multi-app",
+            "slos": [
+                {"name": "availability"},
+                {"name": "latency"},
+                {"name": "errors"},
+            ],
+        }
+    ]
+
+    # Expected: 3 SLOs × 17 rules = 51 rules
+    sloth._container.exists.return_value = True
+
+    file1 = MagicMock()
+    file1.name = "multi-app.yaml"
+    sloth._container.list_files.return_value = [file1]
+
+    # All 3 SLOs in one file, each generates 17 rules = 51 total
+    rules_multi = {
+        "groups": [
+            # First SLO (availability)
+            {"name": "alerts1", "rules": [{}, {}]},
+            {"name": "meta1", "rules": [{}, {}, {}, {}, {}, {}, {}]},
+            {"name": "sli1", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},
+            # Second SLO (latency)
+            {"name": "alerts2", "rules": [{}, {}]},
+            {"name": "meta2", "rules": [{}, {}, {}, {}, {}, {}, {}]},
+            {"name": "sli2", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},
+            # Third SLO (errors)
+            {"name": "alerts3", "rules": [{}, {}]},
+            {"name": "meta3", "rules": [{}, {}, {}, {}, {}, {}, {}]},
+            {"name": "sli3", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},
+        ]
+    }
+
+    mock_file = MagicMock()
+    mock_file.read.return_value = yaml.safe_dump(rules_multi)
+    sloth._container.pull.return_value = mock_file
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert is_valid, "Validation should pass with multiple SLOs in one service"
+    assert error_msg == ""
+    assert expected_count == 51
+    assert actual_count == 51
+
+
+def test_validate_generated_rules_partial_failure(sloth):
+    """Test rule validation with partial SLO failure (some succeed, some fail)."""
+    # 5 SLO specs
+    slo_specs = [
+        {"version": "prometheus/v1", "service": f"app{i}", "slos": [{"name": "test"}]}
+        for i in range(1, 6)
+    ]
+
+    # Expected: 5 SLOs × 17 rules = 85 rules
+    # Actual: 3 succeeded (app1, app2, app3), 2 failed (app4, app5)
+    sloth._container.exists.return_value = True
+
+    files = [MagicMock(name=f"app{i}.yaml") for i in range(1, 4)]  # Only 3 files
+    sloth._container.list_files.return_value = files
+
+    rules_per_slo = {
+        "groups": [
+            {"name": "alerts", "rules": [{}, {}]},
+            {"name": "meta", "rules": [{}, {}, {}, {}, {}, {}, {}]},
+            {"name": "sli", "rules": [{}, {}, {}, {}, {}, {}, {}, {}]},
+        ]
+    }
+
+    mock_file = MagicMock()
+    mock_file.read.return_value = yaml.safe_dump(rules_per_slo)
+    sloth._container.pull.return_value = mock_file
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert not is_valid
+    assert "2 SLOs failed" in error_msg, "Error should mention 2 failed SLOs"
+    assert expected_count == 85
+    assert actual_count == 51  # 3 × 17
+
+
+def test_validate_generated_rules_no_slos(sloth):
+    """Test rule validation when no SLOs are provided."""
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(None)
+
+    assert is_valid, "Should be valid when no SLOs are provided"
+    assert error_msg == ""
+    assert expected_count == 0
+    assert actual_count == 0
+
+
+def test_validate_generated_rules_empty_slos(sloth):
+    """Test rule validation when SLO specs list is empty."""
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules([])
+
+    assert is_valid, "Should be valid when SLO list is empty"
+    assert error_msg == ""
+    assert expected_count == 0
+    assert actual_count == 0
+
+
+def test_validate_generated_rules_container_not_connected(sloth):
+    """Test rule validation when container is not connected."""
+    sloth._container.can_connect.return_value = False
+
+    slo_specs = [
+        {"version": "prometheus/v1", "service": "app1", "slos": [{"name": "test"}]}
+    ]
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert is_valid, "Should return valid when container is not connected"
+    assert error_msg == ""
+    assert expected_count == 0
+    assert actual_count == 0
+
+
+def test_validate_generated_rules_no_rules_directory(sloth):
+    """Test rule validation when rules directory doesn't exist."""
+    slo_specs = [
+        {"version": "prometheus/v1", "service": "app1", "slos": [{"name": "test"}]}
+    ]
+
+    sloth._container.exists.return_value = False
+
+    is_valid, error_msg, expected_count, actual_count = sloth.validate_generated_rules(slo_specs)
+
+    assert not is_valid, "Should be invalid when no rules are generated"
+    assert "1 SLO failed" in error_msg
+    assert expected_count == 17
+    assert actual_count == 0
+
+
+
+
+def test_generate_rules_deletes_stale_output_before_generating(sloth):
+    """Test that existing output file is removed before running sloth generate.
+
+    This ensures a failed generation leaves no stale rules behind so that
+    validate_generated_rules correctly detects the mismatch.
+    """
+    import ops.pebble
+
+    service_name = "my-app"
+    output_path = f"{GENERATED_RULES_DIR}/{service_name}.yaml"
+
+    # Simulate stale output file existing
+    sloth._container.exists.return_value = True
+
+    error = ops.pebble.ExecError(
+        command=["sloth", "generate"], exit_code=1, stdout="", stderr="invalid objective"
+    )
+    sloth._container.exec.side_effect = error
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/{service_name}.yaml")
+
+    # Verify stale file was removed before attempting generation
+    sloth._container.remove_path.assert_called_once_with(output_path)
+    # And no new rules file was written (generation failed)
+    push_calls = [c for c in sloth._container.push.call_args_list if GENERATED_RULES_DIR in str(c)]
+    assert not push_calls, "Rules file should not be written on generation failure"
+
+
+def test_generate_rules_clears_stale_file_on_success_then_rewrites(sloth):
+    """Test that the stale file is removed and then rewritten on successful generation."""
+    service_name = "my-app"
+    output_path = f"{GENERATED_RULES_DIR}/{service_name}.yaml"
+
+    sloth._container.exists.return_value = True
+
+    exec_mock = MagicMock()
+    exec_mock.wait_output.return_value = ("new rules content", "")
+    sloth._container.exec.return_value = exec_mock
+
+    sloth._generate_rules_from_slo(f"{SLO_SPECS_DIR}/{service_name}.yaml")
+
+    sloth._container.remove_path.assert_called_once_with(output_path)
+    push_calls = [c for c in sloth._container.push.call_args_list if GENERATED_RULES_DIR in str(c)]
+    assert len(push_calls) == 1
+    assert push_calls[0][0][1] == "new rules content"
+
+
+def test_reconcile_regenerates_rules_when_output_file_missing(sloth):
+    """Test that rules are regenerated when the output file is absent but spec is unchanged.
+
+    This covers the pod-restart scenario: the spec file exists with the same content
+    but the rules output file is gone, so generation must be re-triggered.
+    """
+    service_name = "my-app"
+    slo_spec = {
+        "version": "prometheus/v1",
+        "service": service_name,
+        "slos": [{"name": "requests-availability", "objective": 99.9}],
+    }
+    slo_yaml = yaml.safe_dump(slo_spec, default_flow_style=False)
+
+    def exists_side_effect(path):
+        # Spec file exists (with unchanged content); rules output file does NOT exist
+        if path == f"{SLO_SPECS_DIR}/{service_name}.yaml":
+            return True
+        return False
+
+    sloth._container.exists.side_effect = exists_side_effect
+    # pull() returns the same spec content as the new spec → no content change
+    pull_mock = MagicMock()
+    pull_mock.read.return_value = slo_yaml
+    sloth._container.pull.return_value = pull_mock
+
+    exec_mock = MagicMock()
+    exec_mock.wait_output.return_value = ("generated rules", "")
+    sloth._container.exec.return_value = exec_mock
+
+    sloth._reconcile_additional_slos([slo_spec])
+
+    # Even though spec content is identical, rules must be regenerated because output is missing
+    assert sloth._container.exec.called, "sloth generate should run when output file is missing"
+    exec_args = sloth._container.exec.call_args[0][0]
+    assert "generate" in exec_args

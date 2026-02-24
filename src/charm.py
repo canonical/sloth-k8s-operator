@@ -210,6 +210,18 @@ class SlothOperatorCharm(ops.CharmBase):
             event.add_status(ops.BlockedStatus(error_msg))
             return
 
+        # Validate that SLO rules were generated correctly
+        is_valid, error_msg, expected_count, actual_count = self.sloth.validate_generated_rules(
+            self.sloth._current_slo_specs
+        )
+        if not is_valid:
+            logger.warning(
+                f"SLO rule validation failed: {error_msg}. "
+                f"Check that all SLO specifications have valid Prometheus queries."
+            )
+            event.add_status(ops.BlockedStatus(error_msg))
+            return
+
         event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
 
     def _on_reconcile_event(self, event: ops.EventBase):
