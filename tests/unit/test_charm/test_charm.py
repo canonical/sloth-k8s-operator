@@ -4,11 +4,12 @@
 """Unit tests for the Sloth charm."""
 
 from dataclasses import replace
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
-from ops.model import ActiveStatus, WaitingStatus
-from ops.testing import CharmEvents, Relation, State
+from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.testing import CharmEvents, Container, Relation, State
 
 
 @pytest.fixture
@@ -258,8 +259,6 @@ def test_grafana_dashboard_relation(context, base_state):
 def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
     """Test that charm doesn't go into error state during install when containers aren't ready."""
     # Containers not connected yet (realistic during install)
-    from ops.testing import Container
-
     sloth_not_ready = Container("sloth", can_connect=False)
 
     state = State(
@@ -307,8 +306,6 @@ def test_peer_relation_required(context, sloth_container):
 
 def test_config_7d_period_without_windows_blocks(context, base_state):
     """Test that 7d period without custom windows results in blocked status."""
-    from ops.model import BlockedStatus
-
     state = replace(base_state, config={"slo-period": "7d"})
 
     state_out = context.run(context.on.config_changed(), state)
@@ -320,8 +317,6 @@ def test_config_7d_period_without_windows_blocks(context, base_state):
 
 def test_config_7d_period_with_windows_active(context, base_state):
     """Test that 7d period with custom windows is active."""
-    from ops.model import ActiveStatus
-
     custom_windows = """apiVersion: sloth.slok.dev/v1
 kind: AlertWindows
 spec:
@@ -354,8 +349,6 @@ spec:
 
 def test_config_30d_period_without_windows_active(context, base_state):
     """Test that 30d period without custom windows is active (has built-in defaults)."""
-    from ops.model import ActiveStatus
-
     state = replace(base_state, config={"slo-period": "30d"})
 
     state_out = context.run(context.on.config_changed(), state)
@@ -365,8 +358,6 @@ def test_config_30d_period_without_windows_active(context, base_state):
 
 def test_config_28d_period_without_windows_active(context, base_state):
     """Test that 28d period without custom windows is active (has built-in defaults)."""
-    from ops.model import ActiveStatus
-
     state = replace(base_state, config={"slo-period": "28d"})
 
     state_out = context.run(context.on.config_changed(), state)
@@ -376,10 +367,6 @@ def test_config_28d_period_without_windows_active(context, base_state):
 
 def test_slo_rule_validation_blocked_status(context, base_state, sloth_container):
     """Test that charm goes to blocked status when SLO rule validation fails."""
-    from unittest.mock import MagicMock
-
-    from ops.model import BlockedStatus
-
     # Mock the sloth workload to return validation failure
     state_out = context.run(context.on.config_changed(), base_state)
 
@@ -418,10 +405,6 @@ def test_slo_rule_validation_blocked_status(context, base_state, sloth_container
 
 def test_slo_rule_validation_active_status(context, base_state):
     """Test that charm remains active when SLO rule validation succeeds."""
-    from unittest.mock import MagicMock
-
-    from ops.model import ActiveStatus
-
     # Mock the sloth workload to return validation success
     with context(context.on.config_changed(), base_state) as manager:
         charm = manager.charm

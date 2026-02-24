@@ -1,8 +1,10 @@
 # Copyright 2025 Canonical
 # See LICENSE file for licensing details.
+import logging
 from io import StringIO
 from unittest.mock import MagicMock
 
+import ops.pebble
 import pytest
 import yaml
 
@@ -643,10 +645,6 @@ def test_reconcile_slo_period_windows_no_cleanup_when_not_exists(sloth):
 
 def test_generate_rules_validation_failure_logs_warning(sloth, caplog):
     """Test that SLO validation failures log a warning with service name and error."""
-    import logging
-
-    import ops.pebble
-
     # Set up logging capture at WARNING level
     caplog.set_level(logging.WARNING)
 
@@ -676,10 +674,6 @@ def test_generate_rules_validation_failure_logs_warning(sloth, caplog):
 
 def test_generate_rules_validation_failure_without_stderr(sloth, caplog):
     """Test that SLO validation failures without stderr still log a warning."""
-    import logging
-
-    import ops.pebble
-
     caplog.set_level(logging.WARNING)
 
     # Mock exec to raise ExecError without stderr attribute
@@ -705,10 +699,6 @@ def test_generate_rules_validation_failure_without_stderr(sloth, caplog):
 
 def test_reconcile_additional_slos_validation_failure(sloth, caplog):
     """Test that validation failures during SLO reconciliation are properly logged."""
-    import logging
-
-    import ops.pebble
-
     caplog.set_level(logging.WARNING)
 
     additional_slo = {
@@ -988,8 +978,6 @@ def test_generate_rules_deletes_stale_output_before_generating(sloth):
     This ensures a failed generation leaves no stale rules behind so that
     validate_generated_rules correctly detects the mismatch.
     """
-    import ops.pebble
-
     service_name = "my-app"
     output_path = f"{GENERATED_RULES_DIR}/{service_name}.yaml"
 
