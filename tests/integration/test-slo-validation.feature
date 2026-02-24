@@ -1,11 +1,11 @@
 Feature: slo-validation
 
-  Scenario: Sloth goes into blocked state on SLO/recording rules mismatch
+  Scenario: Sloth goes into blocked state when SLO expression is missing a query window
     Given sloth deployed and related together with prometheus and parca
-    When we integrate parca with sloth and configure parca to provide invalid SLOs
+    When parca is configured with an SLO expression missing a query window
     Then sloth is in blocked state with a message indicating that there are invalid SLOs
 
-  Scenario: Sloth logs validation warnings on rules that fail to generate
+  Scenario: Sloth logs validation errors for SLO expressions missing a query window
     Given sloth deployed and related together with prometheus and parca
-    When we integrate parca with sloth and configure parca to provide invalid SLOs
-    Then sloth logs validation warnings for the SLOs that are failing
+    When parca is configured with an SLO expression missing a query window
+    Then sloth logs validation errors for the SLOs that failed to generate
