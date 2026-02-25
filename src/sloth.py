@@ -46,6 +46,7 @@ class Sloth:
         self._container = container
         self._slo_period = slo_period
         self._slo_period_windows = slo_period_windows
+        self._current_slo_specs: typing.Optional[typing.List[typing.Dict]] = None
 
     def is_config_valid(self) -> typing.Tuple[bool, str]:
         """Validate that the SLO period configuration is consistent.
@@ -66,6 +67,7 @@ class Sloth:
     def reconcile(self, additional_slos: typing.Optional[typing.List[typing.Dict]] = None):
         """Unconditional control logic."""
         if self._container.can_connect():
+            self._current_slo_specs = additional_slos
             self._reconcile_slo_period_windows()
             self._reconcile_slo_specs(additional_slos)
             # Note: sloth is not a long-running service, so we don't need to manage it via Pebble
@@ -140,9 +142,13 @@ class Sloth:
                 if self._container.exists(slo_path):
                     current_content = self._container.pull(slo_path).read()
 
-                if current_content != slo_yaml:
+                output_path = f"{GENERATED_RULES_DIR}/{service_name}.yaml"
+                rules_missing = not self._container.exists(output_path)
+
+                if current_content != slo_yaml or rules_missing:
                     self._container.push(slo_path, slo_yaml, make_dirs=True)
-                    logger.info(f"Updated SLO specification for service '{service_name}'")
+                    if current_content != slo_yaml:
+                        logger.info(f"Updated SLO specification for service '{service_name}'")
 
                     # Generate rules for this SLO
                     self._generate_rules_from_slo(slo_path)
@@ -154,6 +160,14 @@ class Sloth:
         """Generate Prometheus rules from an SLO specification."""
         slo_filename = Path(slo_path).stem
         output_path = f"{GENERATED_RULES_DIR}/{slo_filename}.yaml"
+
+        # Remove any stale output file before generating so that a failed generation
+        # leaves no rules behind — allowing validate_generated_rules to detect the mismatch.
+        if self._container.exists(output_path):
+            try:
+                self._container.remove_path(output_path)
+            except Exception as e:
+                logger.warning(f"Failed to remove stale rules file {output_path}: {e}")
 
         try:
             # Build sloth generate command
@@ -178,7 +192,11 @@ class Sloth:
             self._container.push(output_path, stdout, make_dirs=True)
             logger.info(f"Generated Prometheus rules for {slo_filename}")
         except ops.pebble.ExecError as e:
-            logger.error(f"Failed to generate rules from {slo_path}: {e.stderr if hasattr(e, 'stderr') else e}")
+            service_name = slo_filename
+            error_msg = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+            logger.warning(
+                f"SLO validation failed for service '{service_name}': {error_msg}"
+            )
         except Exception as e:
             logger.error(f"Unexpected error generating rules: {e}")
 
@@ -216,6 +234,86 @@ class Sloth:
             logger.error(f"Failed to list rules directory: {e}")
 
         return all_rules
+
+    def validate_generated_rules(
+        self, slo_specs: typing.Optional[typing.List[typing.Dict]] = None
+    ) -> typing.Tuple[bool, str, int, int]:
+        """Validate that all SLO specs successfully generated recording rules.
+
+        Each SLO definition should generate exactly 17 Prometheus recording rules:
+        - 2 alert rules (alerts group)
+        - 7 meta recording rules (meta_recordings group)
+        - 8 SLI recording rules (sli_recordings group)
+
+        Args:
+            slo_specs: List of SLO specification dictionaries
+
+        Returns:
+            Tuple of (is_valid, error_message, expected_count, actual_count)
+            - is_valid: True if all SLOs generated the expected number of rules
+            - error_message: Description of validation failure, empty if valid
+            - expected_count: Number of rules that should have been generated
+            - actual_count: Number of rules actually generated
+        """
+        if not self._container.can_connect() or not slo_specs:
+            return (True, "", 0, 0)
+
+        # Each SLO should generate 17 rules total (2 alerts + 7 meta + 8 sli)
+        rules_per_slo = 17
+
+        # Count total number of SLOs across all specs
+        total_slos = sum(len(spec.get("slos", [])) for spec in slo_specs)
+        expected_rule_count = total_slos * rules_per_slo
+
+        # Count actual rules generated
+        actual_rule_count = self._count_generated_rules()
+
+        # Validate counts match
+        is_valid = actual_rule_count == expected_rule_count
+        error_message = ""
+
+        if not is_valid:
+            failed_slo_count = (expected_rule_count - actual_rule_count) // rules_per_slo
+            error_message = (
+                f"SLO rule generation incomplete: expected {expected_rule_count} rules, "
+                f"found {actual_rule_count} ({failed_slo_count} SLO{'s' if failed_slo_count != 1 else ''} failed)"
+            )
+
+        return (is_valid, error_message, expected_rule_count, actual_rule_count)
+
+    def _count_generated_rules(self) -> int:
+        """Count the total number of rules in all generated rule files.
+
+        Returns:
+            Total number of rules found in generated YAML files
+        """
+        rule_count = 0
+
+        if not self._container.exists(GENERATED_RULES_DIR):
+            return rule_count
+
+        try:
+            files = self._container.list_files(GENERATED_RULES_DIR)
+            for file_info in files:
+                if not file_info.name.endswith(".yaml"):
+                    continue
+
+                file_path = f"{GENERATED_RULES_DIR}/{file_info.name}"
+                try:
+                    content = self._container.pull(file_path).read()
+                    rules = yaml.safe_load(content)
+
+                    if rules and "groups" in rules:
+                        for group in rules["groups"]:
+                            rule_count += len(group.get("rules", []))
+
+                except Exception as e:
+                    logger.error(f"Failed to count rules in {file_path}: {e}")
+
+        except Exception as e:
+            logger.error(f"Failed to list rules directory: {e}")
+
+        return rule_count
 
     def _reconcile_sloth_service(self):
         layer = self._pebble_layer()

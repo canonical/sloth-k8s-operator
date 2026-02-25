@@ -4,11 +4,12 @@
 """Unit tests for the Sloth charm."""
 
 from dataclasses import replace
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
-from ops.model import ActiveStatus, WaitingStatus
-from ops.testing import CharmEvents, Relation, State
+from ops.model import ActiveStatus, BlockedStatus, WaitingStatus
+from ops.testing import CharmEvents, Container, Relation, State
 
 
 @pytest.fixture
@@ -258,8 +259,6 @@ def test_grafana_dashboard_relation(context, base_state):
 def test_charm_does_not_error_on_missing_containers(context, sloth_peers):
     """Test that charm doesn't go into error state during install when containers aren't ready."""
     # Containers not connected yet (realistic during install)
-    from ops.testing import Container
-
     sloth_not_ready = Container("sloth", can_connect=False)
 
     state = State(
@@ -307,8 +306,6 @@ def test_peer_relation_required(context, sloth_container):
 
 def test_config_7d_period_without_windows_blocks(context, base_state):
     """Test that 7d period without custom windows results in blocked status."""
-    from ops.model import BlockedStatus
-
     state = replace(base_state, config={"slo-period": "7d"})
 
     state_out = context.run(context.on.config_changed(), state)
@@ -320,8 +317,6 @@ def test_config_7d_period_without_windows_blocks(context, base_state):
 
 def test_config_7d_period_with_windows_active(context, base_state):
     """Test that 7d period with custom windows is active."""
-    from ops.model import ActiveStatus
-
     custom_windows = """apiVersion: sloth.slok.dev/v1
 kind: AlertWindows
 spec:
@@ -354,8 +349,6 @@ spec:
 
 def test_config_30d_period_without_windows_active(context, base_state):
     """Test that 30d period without custom windows is active (has built-in defaults)."""
-    from ops.model import ActiveStatus
-
     state = replace(base_state, config={"slo-period": "30d"})
 
     state_out = context.run(context.on.config_changed(), state)
@@ -365,10 +358,61 @@ def test_config_30d_period_without_windows_active(context, base_state):
 
 def test_config_28d_period_without_windows_active(context, base_state):
     """Test that 28d period without custom windows is active (has built-in defaults)."""
-    from ops.model import ActiveStatus
-
     state = replace(base_state, config={"slo-period": "28d"})
 
     state_out = context.run(context.on.config_changed(), state)
 
     assert isinstance(state_out.unit_status, ActiveStatus)
+
+
+def test_slo_rule_validation_blocked_status(context, base_state, sloth_container):
+    """Test that charm goes to blocked status when SLO rule validation fails."""
+    # Mock the sloth workload to return validation failure
+    state_out = context.run(context.on.config_changed(), base_state)
+
+    # Now manually set up the validation to fail by manipulating the charm's sloth object
+    # We need to test via a relation change that triggers reconciliation
+    slo_relation = Relation(
+        "sloth",
+        remote_app_name="test-provider",
+        remote_app_data={
+            "slos": yaml.safe_dump([{
+                "version": "prometheus/v1",
+                "service": "test-app",
+                "labels": {},
+                "slos": [{"name": "availability", "objective": 99.9}]
+            }])
+        }
+    )
+
+    state = replace(base_state, relations=list(base_state.relations) + [slo_relation])
+
+    # Mock container filesystem to simulate missing rules (validation failure)
+    # The charm expects 17 rules but will find 0
+    with context(context.on.relation_changed(slo_relation), state) as manager:
+        charm = manager.charm
+        # Mock validate_generated_rules to return failure
+        charm.sloth.validate_generated_rules = MagicMock(
+            return_value=(False, "SLO rule generation incomplete: expected 17 rules, found 0 (1 SLO failed)", 17, 0)
+        )
+
+    state_out = context.run(context.on.collect_unit_status(), state)
+
+    assert isinstance(state_out.unit_status, BlockedStatus)
+    assert "expected 17 rules" in state_out.unit_status.message
+    assert "found 0" in state_out.unit_status.message
+
+
+def test_slo_rule_validation_active_status(context, base_state):
+    """Test that charm remains active when SLO rule validation succeeds."""
+    # Mock the sloth workload to return validation success
+    with context(context.on.config_changed(), base_state) as manager:
+        charm = manager.charm
+        charm.sloth.validate_generated_rules = MagicMock(
+            return_value=(True, "", 17, 17)
+        )
+
+    state_out = context.run(context.on.collect_unit_status(), base_state)
+
+    assert isinstance(state_out.unit_status, ActiveStatus)
+

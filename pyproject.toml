@@ -25,6 +25,7 @@ dev = [
     "pydantic",
     "jubilant",
     "pytest-jubilant",
+    "pytest-bdd",
     "tenacity",
     "minio",
     "requests",

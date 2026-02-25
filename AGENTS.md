@@ -279,6 +279,7 @@ tox -e integration
 - Mock external dependencies
 - Use fixtures for common setup
 - Parametrize tests for multiple inputs
+- **All imports must be at the top of the file** — never place `import` or `from ... import` statements inside test functions or fixtures
 
 **Integration Tests**:
 - Test real deployment scenarios
