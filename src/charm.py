@@ -131,6 +131,19 @@ class SlothOperatorCharm(ops.CharmBase):
         except Exception as e:
             logger.error(f"Sloth reconciliation failed: {e}")
 
+        # Log validation warnings during reconcile for reliable juju debug-log capture.
+        # The collect-unit-status handler also validates, but its logs may not always
+        # appear in juju debug-log in all environments.
+        if self._sloth_container.can_connect():
+            is_valid, error_msg, _, _ = self.sloth.validate_generated_rules(
+                self.sloth._current_slo_specs
+            )
+            if not is_valid:
+                logger.warning(
+                    f"SLO rule validation failed: {error_msg}. "
+                    f"Check that all SLO specifications have valid Prometheus queries."
+                )
+
         self._reconcile_cert_transfer()
         self._reconcile_relations()
 
