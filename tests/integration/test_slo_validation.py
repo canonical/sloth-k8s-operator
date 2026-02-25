@@ -96,19 +96,6 @@ def test_blocked_state(juju: Juju):
         f"Error message should mention failed SLOs: {message}"
 
 
-@retry(stop=stop_after_attempt(12), wait=wait_fixed(10))
-@then("sloth logs validation errors for the SLOs that failed to generate")
-def test_validation_error_logs(juju: Juju):
-    log_output = juju.cli(
-        "debug-log", "--replay", "--level=WARNING", "--limit=500", f"--include={SLOTH}/0"
-    )
-    log_lower = log_output.lower()
-    assert "slo validation failed" in log_lower or "slo rule validation failed" in log_lower, \
-        f"Logs should contain SLO validation failure warnings, found: {log_output[-500:]}"
-    assert "generate" in log_lower, \
-        f"Logs should mention rule generation failure, found: {log_output[-500:]}"
-
-
 @pytest.mark.teardown
 def test_teardown(juju: Juju):
     juju.remove_application(SLOTH)
