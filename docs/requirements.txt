@@ -1,5 +1,5 @@
 # Canonical theme (still needed for Furo theme and custom templates)
-canonical-sphinx==0.5.2
+canonical-sphinx==0.6.0
 Sphinx==7.4.7
 
 # Extensions previously auto-loaded by canonical-sphinx
