@@ -1,6 +1,6 @@
 # Canonical theme (still needed for Furo theme and custom templates)
 canonical-sphinx==0.6.0
-Sphinx==7.4.7
+Sphinx==9.1.0
 
 # Extensions previously auto-loaded by canonical-sphinx
 myst-parser~=4.0    # v5.0.0 causes version conflicts
