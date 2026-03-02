@@ -56,7 +56,7 @@ class SlothOperatorCharm(ops.CharmBase):
             self,
             relation_name="remote-write",
             alert_rules_path="src/prometheus_alert_rules",
-            peer_relation_name="sloth_peers",
+            peer_relation_name="sloth-peers",
         )
 
         self.grafana_dashboard_provider = GrafanaDashboardProvider(self)
