@@ -9,7 +9,7 @@ description: |
 type: "charm"
 
 links:
-  documentation: https://discourse.charmhub.io/t/sloth-k8s-docs
+  documentation: https://canonical-sloth.readthedocs-hosted.com/
   website: https://charmhub.io/sloth-k8s
   source: https://github.com/canonical/sloth-k8s-operator
   issues: https://github.com/canonical/sloth-k8s-operator/issues
