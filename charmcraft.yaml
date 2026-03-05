@@ -1,16 +1,18 @@
 # Copyright 2025 Canonical
 # See LICENSE file for licensing details.
 name: sloth-k8s
-summary: Sloth SLI/SLO generator for Prometheus.
-description: |
-  Sloth generates Prometheus alerting and recording rules based on SLO specifications.
-  Helps teams maintain and monitor service reliability targets.
+summary: Sloth SLI/SLO generator for Prometheus
+description: >
+  Sloth simplifies service reliability monitoring by generating complex Prometheus 
+  recording and alerting rules from simple, declarative SLO specifications. 
+  It utilizes industry-standard multi-burn-rate alerting to help teams track error 
+  budgets and meet reliability targets without writing complex PromQL.
 
 type: "charm"
 
 links:
   documentation: https://canonical-sloth.readthedocs-hosted.com/
-  website: https://charmhub.io/sloth-k8s
+  website: https://canonical-sloth.readthedocs-hosted.com/
   source: https://github.com/canonical/sloth-k8s-operator
   issues: https://github.com/canonical/sloth-k8s-operator/issues
 

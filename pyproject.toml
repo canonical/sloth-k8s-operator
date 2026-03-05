@@ -2,13 +2,12 @@
 [project]
 name = "sloth-k8s-operator"
 version = "0.0.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 
 dependencies = [
     "ops[tracing]",
     "pydantic>=2,<3",
     "cosl",
-    "coordinated_workers",
     "charmlibs-interfaces-sloth",
     # ---PYDEPS---
     # lib/charms/tls_certificates_interface/v4/tls_certificates.py
@@ -81,7 +80,6 @@ convention = "google"
 
 [tool.pyright]
 extraPaths = ["src", "lib"]
-pythonVersion = "3.8"
 pythonPlatform = "All"
 
 [tool.codespell]

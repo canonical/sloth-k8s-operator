@@ -19,13 +19,13 @@ Next, relate `sloth-k8s` to `prometheus-k8s` and `grafana-k8s`:
 .. code-block:: bash
 
     # if grafana and prometheus aren't integrated already:
-    juju relate prom:metrics-endpoint grafana:metrics-endpoint
-    juju relate prom:grafana-source grafana:grafana-source
-    juju relate prom:grafana-dashboard grafana:grafana-dashboard
+    juju integrate prom:metrics-endpoint grafana:metrics-endpoint
+    juju integrate prom:grafana-source grafana:grafana-source
+    juju integrate prom:grafana-dashboard grafana:grafana-dashboard
 
     # integrate sloth with prometheus and grafana
-    juju relate sloth:metrics-endpoint prom:metrics-endpoint
-    juju relate sloth:grafana-dashboard grafana:grafana-dashboard
+    juju integrate sloth:metrics-endpoint prom:metrics-endpoint
+    juju integrate sloth:grafana-dashboard grafana:grafana-dashboard
 
 Now `sloth-k8s` is deployed and integrated with your monitoring stack.
 
