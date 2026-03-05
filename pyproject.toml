@@ -12,6 +12,7 @@ dependencies = [
     # ---PYDEPS---
     # lib/charms/tls_certificates_interface/v4/tls_certificates.py
     "cryptography",
+    "lightkube>=0.19.1",
 ]
 
 [project.optional-dependencies]
