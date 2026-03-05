@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 # Location of the certificate in the charm container
 CA_CERT_PATH = "/usr/local/share/ca-certificates/ca.cert"
 
-CERTIFICATES_RELATION_NAME = "certificates"
 SLOTH_CONTAINER = "sloth"
 
 

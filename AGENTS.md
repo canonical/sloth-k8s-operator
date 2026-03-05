@@ -16,12 +16,9 @@ This document provides guidance for LLM agents working on this Juju Kubernetes c
 ```
 sloth-k8s-operator/
 ├── src/
-│   ├── charm.py              # Main charm logic (SlothOperatorCharm)
-│   ├── sloth.py              # Sloth workload management
-│   ├── nginx.py              # Nginx reverse proxy
-│   ├── nginx_prometheus_exporter.py
-│   ├── ingress_configuration.py
-│   └── models.py             # Data models (TLSConfig, etc.)
+│   ├── charm.py                 # Main charm logic (SlothOperatorCharm)
+│   ├── sloth.py                 # Sloth workload management
+│   └── alert_windows_models.py  # Pydantic models for Sloth AlertWindows specification validation 
 ├── lib/
 │   └── charms/               # Charm libraries from charmhub
 │       └── sloth_k8s/        # This charm's libraries
@@ -326,10 +323,6 @@ name: sloth-k8s
 containers:
   sloth:
     resource: sloth-image    # ghcr.io/slok/sloth:v0.11.0
-  nginx:
-    resource: nginx-image
-  nginx-prometheus-exporter:
-    resource: nginx-prometheus-exporter-image
 ```
 
 ### Sloth Configuration

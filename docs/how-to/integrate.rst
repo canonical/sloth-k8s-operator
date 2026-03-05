@@ -38,11 +38,10 @@ In the charm's code, import the SlothProvider object and set it up:
    import ops
    # import the relation endpoint wrapper
    from charmlibs.interfaces.sloth import SlothProvider
-   from ops import CharmBase
 
    SLOS_RELATION_NAME = "slos"
 
-   class MyCharm(CharmBase):
+   class MyCharm(ops.CharmBase):
        def __init__(self, *args):
            super().__init__(*args)
 

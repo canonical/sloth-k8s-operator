@@ -32,7 +32,7 @@ monitor, in this case, a Tempo process.
           ticket_alert:
             disable: true
 
-One way or another, the Tempo charm needs to provide this SLO definition to Sloth over the `slos` interface.
+One way or another, the Tempo charm needs to provide this SLO definition to Sloth over the `sloth` interface.
 There are multiple ways to do this, from easy but rigid to more complex but powerful:
 
 1. Hardcoding one or more SLOs in the charm code, so that every time the charm is deployed, it provides the same SLOs to Sloth (allowing the user to choose among the predefined SLOs via a charm config option, for example). This way, the charm could expose a single user-facing knob based on how critical the service is in their infrastructure (e.g., "crucial", "standard", "low-risk"), and each option would correspond to predefined SLO definitions with varying target objectives.

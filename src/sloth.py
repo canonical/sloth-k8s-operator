@@ -350,11 +350,14 @@ class Sloth:
             logger.error("unable to get version from sloth: version command has no stdout.")
             return ""
 
-        match = VERSION_PATTERN.search(version_out.read())
+        version_str = version_out.read()
+        match = VERSION_PATTERN.search(version_str)
         if not match:
             logger.error(
-                f"unable to get version from sloth: version command returned {version_out!r}, "
-                f"which didn't match the expected {VERSION_PATTERN.pattern!r}"
+                "unable to get version from sloth: version command returned %r, "
+                "which didn't match the expected %r",
+                version_str,
+                VERSION_PATTERN.pattern
             )
             return ""
         return match.groups()[0]
