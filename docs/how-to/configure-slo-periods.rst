@@ -73,18 +73,8 @@ Basic example (7-day period)
 Understanding alert windows
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The configuration defines four types of alerts:
-
-1. **Page Quick**: Fast detection (5m window) of significant error budget consumption (8%)
-2. **Page Slow**: Detection over a longer period (6h window) of sustained issues (12.5%)
-3. **Ticket Quick**: Early warning (1d window) of moderate consumption (20%)
-4. **Ticket Slow**: Long-term monitoring (3d window) for trends (42%)
-
-Each alert has:
-
-- ``errorBudgetPercent``: Percentage of error budget consumed to trigger the alert
-- ``shortWindow``: Shorter window to detect when the issue has resolved
-- ``longWindow``: Longer window to measure overall error budget consumption
+See :ref:`explanation-slos` for an explanation of what alert windows are, why there are four
+types, and how to choose appropriate thresholds.
 
 Custom thresholds example
 ^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -33,4 +33,5 @@ At the moment Sloth does not have a user interface.
 In order to start using SLIs and SLOs you'll have to configure Sloth by integrating it over the
 `slos` interface with a charm that can provide SLO definitions to it.
 
-For an example of how to configure SLOs for `sloth-k8s`, see :ref:`reference-slos`.
+For instructions on how to provide SLO definitions to `sloth-k8s`, see :ref:`how-to-guides-integrate`.
+For a reference example of the SLO specification format, see :ref:`reference-slos`.

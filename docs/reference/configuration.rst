@@ -60,12 +60,9 @@ alerting windows that override Sloth's default alert window calculations.
 built-in defaults for those two periods. The charm will go to a blocked state if you use
 a custom period without providing this configuration.
 
-When provided, this configuration defines:
-
-- **Quick page alerts**: Fast detection of significant error budget consumption
-- **Slow page alerts**: Detection of sustained error budget consumption
-- **Quick ticket alerts**: Early warning of moderate error budget consumption
-- **Slow ticket alerts**: Long-term trend monitoring
+When provided, this configuration defines alert windows for four types of alerts
+(quick page, slow page, quick ticket, slow ticket). See :ref:`explanation-slos` for an
+explanation of what each type means and how to choose appropriate thresholds.
 
 The YAML must follow the Sloth AlertWindows specification (``apiVersion: sloth.slok.dev/v1``,
 ``kind: AlertWindows``). The charm validates the configuration against the AlertWindows spec

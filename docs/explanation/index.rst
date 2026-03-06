@@ -12,4 +12,5 @@ Explore topics about the concepts and ideas in `sloth-k8s`.
 .. toctree::
     :hidden:
 
+    slos
 

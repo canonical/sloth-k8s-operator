@@ -142,15 +142,81 @@ non-standard SLO periods.
 
 For more information, see [Sloth's SLO Period Windows documentation](https://sloth.dev/usage/slo-period-windows/).
 
-## Implementing SLO Support in Your Charm
+## Integrating with Sloth
 
-To implement SLO support in a charm that defines its own SLI/SLO expressions, you need:
+There are two ways to provide SLO specifications to `sloth-k8s`:
 
-### 1. Add the Sloth library dependency
+1. **Via `cos-configuration-k8s` (recommended)** — deploy a dedicated configuration charm that
+   reads SLO spec files from a git repository and forwards them to Sloth. No changes to your
+   application charm are needed.
+2. **Via the `SlothProvider` library** — add code to your charm so it sends SLO specs directly
+   over the `sloth` relation. Use this when your charm needs to generate or parametrize SLO specs
+   dynamically at runtime.
+
+### Option 1: Integrate via `cos-configuration-k8s` (no charm changes required)
+
+[`cos-configuration-k8s`](https://charmhub.io/cos-configuration-k8s) is a Canonical charm that
+periodically syncs a git repository and forwards its contents to COS components, including
+`sloth-k8s`. This is the recommended approach when you want to add SLOs to an existing deployment
+without modifying any application charm.
+
+**1. Write your SLO specification files**
+
+Create one or more YAML files in [Sloth format](https://pkg.go.dev/github.com/slok/sloth/pkg/prometheus/api/v1)
+and commit them to a git repository, inside a directory (default: `slos/`):
+
+```yaml
+# slos/my-service.yaml
+version: "prometheus/v1"
+service: "my-service"
+labels:
+  team: my-team
+slos:
+  - name: "availability"
+    objective: 99.9
+    description: "99.9% of requests succeed"
+    sli:
+      events:
+        error_query: 'sum(rate(http_requests_total{status=~"5.."}[{{.window}}]))'
+        total_query: 'sum(rate(http_requests_total[{{.window}}]))'
+    alerting:
+      name: MyServiceHighErrorRate
+```
+
+**2. Deploy and configure `cos-configuration-k8s`**
+
+```bash
+juju deploy cos-configuration-k8s cos-config
+juju config cos-config \
+    git_repo=https://github.com/your-org/your-repo \
+    git_branch=main \
+    slos_path=slos
+```
+
+**3. Relate to `sloth-k8s`**
+
+```bash
+juju integrate cos-config:sloth sloth-k8s:sloth
+```
+
+`cos-configuration-k8s` will sync the repository and forward all SLO files it finds under
+`slos_path` to `sloth-k8s`. To force an immediate sync, run:
+
+```bash
+juju run cos-config/0 sync-now
+```
+
+### Option 2: Implement SLO Support in Your Charm
+
+Use this approach when your charm generates or parametrises SLO specs at runtime (for example,
+based on charm config or relation data). [`parca-k8s`](https://charmhub.io/parca-k8s) is an
+example of a charm that integrates with Sloth this way.
+
+**1. Add the Sloth library dependency**
 
 Add `charmlibs-interfaces-sloth` to your dependencies in your charm's preferred manner.
 
-### 2. Import and instantiate SlothProvider
+**2. Import and instantiate `SlothProvider`**
 
 ```python
 from charmlibs.interfaces.sloth import SlothProvider
@@ -161,7 +227,7 @@ class YourCharm(CharmBase):
         self.slo_provider = SlothProvider(self)
 ```
 
-### 3. Define your SLO specification
+**3. Define your SLO specification**
 
 Follow Sloth's format (as YAML string):
 
@@ -186,7 +252,7 @@ slos:
 """
 ```
 
-### 4. Provide the SLO spec
+**4. Provide the SLO spec**
 
 Provide the SLO spec when appropriate (e.g., on pebble-ready, config-changed):
 
@@ -194,23 +260,24 @@ Provide the SLO spec when appropriate (e.g., on pebble-ready, config-changed):
 self.slo_provider.provide_slos(slo_yaml)
 ```
 
-### 5. Add metadata
+**5. Add metadata**
 
 In your charm's `charmcraft.yaml`:
 
 ```yaml
 provides:
   slos:
-    interface: slo
+    interface: sloth
 ```
 
-### 6. Relate to Sloth
+**6. Relate to Sloth**
 
 ```bash
-juju relate your-charm:slos sloth-k8s:slos
+juju relate your-charm:slos sloth-k8s:sloth
 ```
 
-The Sloth library supports dynamic SLO updates, Pydantic validation, and is designed for easy integration with any charm that wants to provide SLO specifications.
+The Sloth library supports dynamic SLO updates, Pydantic validation, and is designed for easy
+integration with any charm that wants to provide SLO specifications.
 
 ## Troubleshooting
 

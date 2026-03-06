@@ -264,6 +264,9 @@ tox -e lint,unit
 
 # If making charm logic changes, also run:
 tox -e integration
+
+# If making documentation changes, also run:
+tox -e lint-docs
 ```
 
 **IMPORTANT**: Always use `tox` to run tests. Do NOT run `pytest` or `python -m pytest` directly, as this bypasses the proper environment setup and dependency isolation.
@@ -386,6 +389,10 @@ tox -e integration           # Full integration test
 uv add <package>             # Add dependency
 tox -e lock                  # Update lockfile
 
+# Documentation
+tox -e lint-docs              # Build HTML + linkcheck + spellcheck
+tox -e docs                   # Build and serve docs locally with live-reload
+
 # Testing specific scenarios
 tox -e unit -- -k test_name  # Run specific test
 tox -e unit -- -v            # Verbose output
@@ -484,7 +491,7 @@ Using absolute paths (`/etc/sloth/slos/`, `/etc/sloth/rules/`) ensures:
 
 ## SLO Relation Interface
 
-For guidance on how to implement SLO support in your own charm using the Sloth library, see the "Implementing SLO Support in Your Charm" section in the [README.md](README.md).
+For guidance on how to integrate with Sloth (via `cos-configuration-k8s` or the `SlothProvider` library), see the "Integrating with Sloth" section in the [README.md](README.md).
 
 ## SLO Relation Implementation Details
 
