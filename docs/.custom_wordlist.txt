@@ -11,6 +11,7 @@ freefont
 github
 GPG
 gyre
+Hardcode
 https
 html
 io
@@ -78,8 +79,10 @@ SLIs
 slos
 Hardcoding
 hardcoded
+hardcode
 databag
 databags
 unittest
 Pyrra
 lockfile
+KPIs
