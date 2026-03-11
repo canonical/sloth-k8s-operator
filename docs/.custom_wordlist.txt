@@ -86,3 +86,4 @@ unittest
 Pyrra
 lockfile
 KPIs
+kpis
