@@ -19,7 +19,9 @@ database queries completed within 100 ms.
 
 A **Service Level Objective (SLO)** is a target value (or range) for an SLI. For instance,
 "99.9% of HTTP requests succeed over a rolling 30-day window." SLOs translate abstract
-reliability goals into concrete, measurable commitments.
+reliability goals into concrete, measurable commitments. In large organisations, SLOs serve
+as the digital-service equivalent of KPIs: they give engineering and business teams a shared,
+data-driven language for discussing and prioritising reliability work.
 
 An **error budget** is the allowable amount of unreliability implied by the SLO. If your SLO
 is 99.9%, then 0.1% of requests may fail — that is your error budget. When the error budget is
@@ -63,41 +65,47 @@ to write the low-level multi-window, multi-burn-rate alert expressions by hand.
 Design space for providing SLOs to sloth-k8s
 ---------------------------------------------
 
-When adding SLO support to a charm (or a deployment), you have several options with different
-trade-offs:
+The right approach depends on whether you are willing to modify the application charm, and on
+how much flexibility operators need at deployment time or at runtime:
 
-1. **Via** ``cos-configuration-k8s`` **(no charm changes required)**
+- **No charm changes needed - use** ``cos-configuration-k8s``
 
-   `cos-configuration-k8s <https://charmhub.io/cos-configuration-k8s>`_ is a Canonical
-   charm that syncs a git repository and forwards SLO files it finds there to ``sloth-k8s``.
-   This approach is ideal when you want to add SLOs to an existing deployment without touching
-   application charm code. SLO definitions live in a version-controlled git repository and can
-   be updated independently of charm releases.
+  `cos-configuration-k8s <https://charmhub.io/cos-configuration-k8s>`_ is a Canonical
+  charm that syncs a git repository and forwards SLO files it finds there to ``sloth-k8s``.
+  This approach is ideal when you want to add SLOs to an existing deployment without touching
+  application charm code. SLO definitions live in a version-controlled git repository and can
+  be updated independently of charm releases.
 
-2. **Hardcode SLOs in the charm with a tier/preset knob**
+- **Charm changes: your charm is SLO-aware**
 
-   Bundle one or more SLO spec files with the charm and expose a single user-facing config
-   option (e.g., ``slo-tier: critical|standard|low``) that selects among them. This gives
-   operators a simple knob without requiring them to understand the Sloth YAML format, while
-   keeping the SLO logic inside the charm codebase.
+  - **SLOs are static** (structure and targets do not vary between deployments or at runtime)
 
-3. **Expose individual SLO objective config options**
+    - **Deployment-independent** - the same SLOs apply to every deployment: bundle SLO spec
+      files directly in the charm with no related config options. This is the simplest
+      approach when every deployment should be measured against identical objectives.
 
-   Provide separate Juju config options for each SLO objective value (e.g.,
-   ``availability-target: 99.9``), while keeping the SLO structure hardcoded. This separates
-   *what* is measured from *how strictly* it is measured, letting the operator tune targets
-   to their risk tolerance without rewriting the spec.
+    - **Deployment-dependent** - targets vary between deployments but are set once at deploy
+      time: expose a multi-line string config option (e.g., ``slos:``) where the operator
+      pastes a complete Sloth spec. This gives maximum structural flexibility at the cost of
+      requiring the operator to understand the Sloth format.
 
-4. **Accept a raw SLO YAML string as a config option**
+  - **SLOs are dynamic** (operators may adjust SLO behaviour after deployment)
 
-   Expose a multi-line string config option (e.g., ``slos:``) where the operator pastes a
-   complete Sloth spec. This gives maximum flexibility at the cost of requiring the operator to
-   understand the Sloth format. It is most useful as a fallback alongside one of the other
-   approaches.
+    - **Partially configurable** - the operator chooses from a small set of named presets:
+      hardcode a few SLO configurations inside the charm (e.g., ``critical``, ``standard``,
+      ``low``) and expose a single config option such as ``slo-tier`` to select among them.
+      This gives operators a simple runtime knob without requiring them to understand the
+      Sloth YAML format.
 
-In practice, the most resilient charms combine options 2–4: they ship sensible presets, allow
-objective tuning via config, and accept a raw override for advanced operators. See
-:ref:`how-to-guides-integrate` for step-by-step instructions on each approach.
+    - **Highly configurable** - the operator can tune every objective at runtime: expose
+      individual Juju config options for each objective value (e.g.,
+      ``availability-target: 99.9``), keeping the SLO structure hardcoded. This separates
+      *what* is measured from *how strictly* it is measured, letting operators tune targets
+      to their risk tolerance at any time.
+
+In practice, the most resilient charms combine the dynamic approaches: they ship sensible
+presets, allow objective tuning via config, and accept a raw override for advanced operators.
+See :ref:`how-to-guides-integrate` for step-by-step instructions on each approach.
 
 Understanding alert windows
 ----------------------------

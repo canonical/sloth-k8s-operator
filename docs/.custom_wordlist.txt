@@ -79,6 +79,7 @@ SLIs
 slos
 Hardcoding
 hardcoded
+hardcode
 databag
 databags
 unittest
