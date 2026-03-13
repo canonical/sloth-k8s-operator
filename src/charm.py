@@ -9,6 +9,7 @@ import socket
 import typing
 from pathlib import Path
 from typing import Dict, List
+from urllib.parse import urlparse, urlunparse
 
 import cosl.reconciler
 import ops
@@ -24,6 +25,7 @@ from charms.loki_k8s.v1.loki_push_api import LogForwarder
 from charms.prometheus_k8s.v0.prometheus_scrape import MetricsEndpointProvider
 from charms.prometheus_k8s.v1.prometheus_remote_write import PrometheusRemoteWriteConsumer
 from charms.tempo_coordinator_k8s.v0.tracing import TracingEndpointRequirer
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
 from sloth import Sloth
 
@@ -74,6 +76,8 @@ class SlothOperatorCharm(ops.CharmBase):
             self, relation_name="charm-tracing", protocols=["otlp_http"]
         )
 
+        self.ingress = IngressPerAppRequirer(self, relation_name="ingress", port=Sloth.port)
+
         # SLO provider/requirer for collecting SLO specs from related charms
         self.slo_requirer = SlothRequirer(self)
 
@@ -83,6 +87,7 @@ class SlothOperatorCharm(ops.CharmBase):
             container=self._sloth_container,
             slo_period=typing.cast(str, self.config.get("slo-period", "30d")),
             slo_period_windows=typing.cast(str, self.config.get("slo-period-windows", "")),
+            prometheus_url=self._prometheus_base_url,
         )
 
         # event handlers
@@ -193,8 +198,26 @@ class SlothOperatorCharm(ops.CharmBase):
             cacert_path.unlink(missing_ok=True)
 
     @property
+    def _prometheus_base_url(self) -> str:
+        """Derive the Prometheus base URL from the remote-write relation.
+
+        Prometheus exposes a remote-write endpoint such as:
+          http://prometheus-k8s-0...svc:9090/api/v1/write
+        Stripping the path gives us the base URL that ``sloth server`` needs for
+        its ``--prometheus-address`` flag.
+        """
+        try:
+            endpoints = self.remote_write_consumer.endpoints
+            if endpoints:
+                parsed = urlparse(endpoints[0]["url"])
+                return urlunparse(parsed._replace(path="", query="", fragment=""))
+        except Exception:
+            pass
+        return ""
+
+    @property
     def _metrics_scrape_jobs(self) -> List[Dict]:
-        return []
+        return [{"static_configs": [{"targets": [f"*:{Sloth.status_port}"]}]}]
 
     # EVENT HANDLERS
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent):
@@ -234,7 +257,10 @@ class SlothOperatorCharm(ops.CharmBase):
             event.add_status(ops.BlockedStatus(error_msg))
             return
 
-        event.add_status(ops.ActiveStatus(""))  # TODO: Add "UI ready at x" when we have a UI
+        if self.ingress.is_ready():
+            event.add_status(ops.ActiveStatus(f"UI ready at {self.ingress.url}"))
+        else:
+            event.add_status(ops.ActiveStatus("UI ready at :8080"))
 
     def _on_reconcile_event(self, event: ops.EventBase):
         """Handle events that require reconciliation."""
@@ -246,7 +272,7 @@ class SlothOperatorCharm(ops.CharmBase):
 
     def _on_list_endpoints_action(self, event: ops.ActionEvent):
         """React to the list-endpoints action."""
-        event.set_results({})  # TODO: Set endpoints after we have a UI
+        event.set_results({"ui": f"http://{self._fqdn}:{Sloth.port}"})
 
 
 if __name__ == "__main__":  # pragma: nocover

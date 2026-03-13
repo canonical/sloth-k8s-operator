@@ -19,8 +19,9 @@ from alert_windows_models import AlertWindows
 logger = logging.getLogger(__name__)
 
 VERSION_PATTERN = re.compile(r'([0-9]+[.][0-9]+[.][0-9]+[-0-9a-f]*)')
-# sloth server bind port
-_SLOTH_PORT = 8080
+# sloth server bind ports
+_SLOTH_PORT = 8080       # UI / app server (sloth server --app-listen-address)
+_SLOTH_STATUS_PORT = 8081  # Status server: metrics, health check (sloth server --status-listen-address)
 DEFAULT_BIN_PATH = "/usr/bin/sloth"
 
 # Paths for SLO specs and generated rules in the container
@@ -33,6 +34,7 @@ class Sloth:
     """Sloth workload."""
 
     port = _SLOTH_PORT
+    status_port = _SLOTH_STATUS_PORT
     service_name = "sloth"
     container_name = "sloth"
     layer_name = "sloth"
@@ -42,10 +44,12 @@ class Sloth:
         container: Container,
         slo_period: str = "30d",
         slo_period_windows: str = "",
+        prometheus_url: str = "",
     ):
         self._container = container
         self._slo_period = slo_period
         self._slo_period_windows = slo_period_windows
+        self._prometheus_url = prometheus_url
         self._current_slo_specs: typing.Optional[typing.List[typing.Dict]] = None
 
     def is_config_valid(self) -> typing.Tuple[bool, str]:
@@ -70,9 +74,7 @@ class Sloth:
             self._current_slo_specs = additional_slos
             self._reconcile_slo_period_windows()
             self._reconcile_slo_specs(additional_slos)
-            # Note: sloth is not a long-running service, so we don't need to manage it via Pebble
-            # It's a generator tool that creates rules and exits
-            # self._reconcile_sloth_service()
+            self._reconcile_sloth_service()
 
     def _reconcile_slo_period_windows(self):
         """Configure custom SLO period windows if provided."""
@@ -321,7 +323,7 @@ class Sloth:
         self._container.replan()
 
     def _pebble_layer(self) -> Layer:
-        """Return a Pebble layer for Sloth based on the current configuration."""
+        """Return a Pebble layer for Sloth server based on the current configuration."""
         return Layer(
             {
                 "services": {
@@ -329,8 +331,9 @@ class Sloth:
                         "override": "replace",
                         "summary": "sloth",
                         "command": sloth_command_line(
-                            http_address=f"localhost:{_SLOTH_PORT}",
-                            slo_period=self._slo_period,
+                            app_address=f":{_SLOTH_PORT}",
+                            status_address=f":{_SLOTH_STATUS_PORT}",
+                            prometheus_url=self._prometheus_url,
                         ),
                         "startup": "enabled",
                     }
@@ -364,23 +367,33 @@ class Sloth:
 
 
 def sloth_command_line(
-    http_address: str = f":{_SLOTH_PORT}",
-    slo_period: str = "30d",
+    app_address: str = f":{_SLOTH_PORT}",
+    status_address: str = f":{_SLOTH_STATUS_PORT}",
+    prometheus_url: str = "",
     *,
     bin_path: str = DEFAULT_BIN_PATH,
 ) -> str:
-    """Generate a valid Sloth command line.
+    """Generate a valid Sloth server command line.
 
     Args:
-        http_address: Http address for the sloth server.
-        slo_period: SLO period for calculations.
+        app_address: Listen address for the UI / app server (default: ':8080').
+        status_address: Listen address for the status server – health check, metrics,
+            pprof – (default: ':8081').
+        prometheus_url: Base URL of the Prometheus instance that Sloth should query.
+            When empty, the server starts with ``--fake-prometheus`` so the UI is still
+            reachable (but shows no real data).
         bin_path: Path to the Sloth binary to be started.
     """
     cmd = [
         str(bin_path),
-        "serve",
-        f"--listen={http_address}",
-        f"--default-slo-period={slo_period}",
+        "server",
+        f"--app-listen-address={app_address}",
+        f"--status-listen-address={status_address}",
     ]
+
+    if prometheus_url:
+        cmd.append(f"--prometheus-address={prometheus_url}")
+    else:
+        cmd.append("--fake-prometheus")
 
     return " ".join(cmd)
