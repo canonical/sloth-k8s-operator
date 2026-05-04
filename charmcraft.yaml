@@ -40,7 +40,7 @@ resources:
   sloth-image:
     type: oci-image
     description: OCI image for sloth
-    upstream-source: ubuntu/sloth@sha256:847aca751b3894a5a528af047820de71e570ce908a5d44158a789bb38ad15988  # renovate: oci-image tag: 0.15-24.04
+    upstream-source: ubuntu/sloth@sha256:23878bf05651ddaf0c317f4a8431887fd69d859cc51b822e0fa77ec8f8cb0adf  # renovate: oci-image tag: 0.15-24.04
 
 requires:
   catalogue:
